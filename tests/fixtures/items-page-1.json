@@ -1,0 +1,36 @@
+{
+  "data": [
+    {
+      "schedule_code": 1001,
+      "li_item_id": "LI-1",
+      "drug_name": "Example drug",
+      "program_code": "GE",
+      "pbs_code": "1234A",
+      "benefit_type_code": "R",
+      "caution_indicator": "N",
+      "note_indicator": "N",
+      "continued_dispensing_flag": "N",
+      "determined_qty": 1,
+      "doctors_bag_only_indicator": "N",
+      "elect_med_chart_eligible_ind": "N",
+      "extemporaneous_indicator": "N",
+      "hsptl_med_chart_eligible_ind": "N",
+      "infusible_indicator": "N",
+      "innovator_indicator": "N",
+      "legal_unar_ind": "N",
+      "pack_not_to_be_broken_ind": "N",
+      "paper_med_chart_eligible_ind": "N",
+      "policy_applied_bio_sim_up_flag": "N",
+      "policy_applied_imdq60_base_flag": "N",
+      "policy_applied_imdq60_flag": "N",
+      "policy_applied_indig_phar_flag": "N",
+      "program_code": "GE",
+      "safety_net_resup_rule_cnt_ind": "N",
+      "section100_only_indicator": "N",
+      "therapeutic_exemption_indicator": "N",
+      "water_added_ind": "N"
+    }
+  ],
+  "_meta": {"page": 1, "count": 1, "total_records": 1},
+  "_links": []
+}

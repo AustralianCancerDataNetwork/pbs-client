@@ -1,0 +1,22 @@
+{
+  "data": [
+    {
+      "schedule_code": 1001,
+      "revision_number": 1,
+      "start_tsp": "2026-01-01T00:00:00Z",
+      "effective_date": "2026-01-01",
+      "effective_month": "January",
+      "effective_year": 2026,
+      "publication_status": "PUBLISHED"
+    }
+  ],
+  "_meta": {
+    "page": 1,
+    "count": 1,
+    "total_records": 1,
+    "info": {
+      "messages": ["Permission is granted to use and redistribute this content, as long as all copyright statements are retained."]
+    }
+  },
+  "_links": []
+}

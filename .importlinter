@@ -1,0 +1,14 @@
+[importlinter]
+root_package = pbs_client
+include_external_packages = True
+
+[importlinter:contract:pbs-client-layers]
+name = pbs-client layers: sync sits on http+db, query sits on db only
+type = layers
+layers =
+    pbs_client.cli
+    pbs_client.sync
+    pbs_client.query
+    pbs_client.db
+    pbs_client.http
+
