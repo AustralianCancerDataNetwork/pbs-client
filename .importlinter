@@ -3,12 +3,13 @@ root_package = pbs_client
 include_external_packages = True
 
 [importlinter:contract:pbs-client-layers]
-name = pbs-client layers: sync sits on http+db, query sits on db only
+name = pbs-client layers: toolkit sits on db, sync sits on http+db
 type = layers
 layers =
     pbs_client.cli
     pbs_client.sync
-    pbs_client.query
+    pbs_client.toolkit.integrations
+    pbs_client.toolkit.analytics
+    pbs_client.toolkit.core
     pbs_client.db
     pbs_client.http
-
