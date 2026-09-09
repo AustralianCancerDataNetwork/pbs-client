@@ -6,8 +6,9 @@ import json
 import logging
 import threading
 import time
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Callable, Iterator, Mapping, Protocol
+from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urljoin
 from urllib.request import Request, urlopen
@@ -34,7 +35,7 @@ Transport = Callable[[str, str, Mapping[str, str]], TransportResponse]
 
 def _urlopen_transport(method: str, url: str, headers: Mapping[str, str]) -> TransportResponse:
     request = Request(url, method=method, headers=dict(headers))
-    with urlopen(request, timeout=60) as response:  # noqa: S310 - configured public API URL
+    with urlopen(request, timeout=60) as response:
         return TransportResponse(response.status, dict(response.headers), response.read())
 
 
@@ -102,7 +103,7 @@ class PBSClient:
 
     def __init__(
         self,
-        settings: PBSSettings | None = None,
+        settings: PBSSettings,
         *,
         transport: Transport = _urlopen_transport,
         limiter: GlobalRateLimiter | None = None,
@@ -110,7 +111,7 @@ class PBSClient:
         max_retries: int = 3,
         backoff_base: float = 2.0,
     ) -> None:
-        self.settings = settings or PBSSettings.from_env()
+        self.settings = settings
         self.transport = transport
         self.limiter = limiter or GlobalRateLimiter(self.settings.rate_limit_seconds, sleeper)
         self.max_retries = max(0, max_retries)
@@ -163,9 +164,12 @@ class PBSClient:
             yield page
             if not page.records or (len(page.records) < limit and not page.has_next):
                 return
-            if not page.has_next and page.total_records is not None:
-                if page_number * limit >= page.total_records:
-                    return
+            if (
+                not page.has_next
+                and page.total_records is not None
+                and page_number * limit >= page.total_records
+            ):
+                return
             if not page.has_next and page.total_records is None:
                 return
             page_number += 1

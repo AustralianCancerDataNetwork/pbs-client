@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from sqlalchemy.engine import Engine
 import typer
+from sqlalchemy.engine import Engine
 
 from pbs_client.config import PBSSettings, get_pbs_context
-from pbs_client.db import init_db, make_engine, make_session_factory
+from pbs_client.db import init_db, make_session_factory
 from pbs_client.errors import PBSSyncError, PBSTransportError
 from pbs_client.http import PBSClient
 from pbs_client.sync import SyncOrchestrator, mirror_status
@@ -14,12 +14,8 @@ from pbs_client.sync import SyncOrchestrator, mirror_status
 app = typer.Typer(help="Maintain a local offline mirror of the PBS Public Data API v3.")
 
 
-def _runtime(db_path: str | None) -> tuple[PBSSettings, Engine, str]:
-    """Resolve shared config, with ``--db-path`` retained as a local override."""
-
-    if db_path is not None:
-        settings = PBSSettings.from_env()
-        return settings, make_engine(db_path), db_path
+def _runtime() -> tuple[PBSSettings, Engine, str]:
+    """Resolve the shared oa-configurator config, engine, and database name."""
 
     config, database = get_pbs_context()
     return PBSSettings.from_config(config), database.create_engine(future=True), config.pbs_db
@@ -66,12 +62,10 @@ def _report_sync_failure(error: PBSSyncError) -> None:
 
 
 @app.command("init-db")
-def init_db_command(
-    db_path: str | None = typer.Option(None, "--db-path", help="SQLite path or SQLAlchemy URL."),
-) -> None:
+def init_db_command() -> None:
     """Create the local schema without making any network request."""
 
-    _, engine, database_name = _runtime(db_path)
+    _, engine, database_name = _runtime()
     init_db(engine)
     typer.echo(f"Initialized PBS database {database_name!r}")
 
@@ -79,7 +73,6 @@ def init_db_command(
 @app.command("sync")
 def sync_command(
     resource: str | None = typer.Option(None, help="Only sync one resource, e.g. Item."),
-    db_path: str | None = typer.Option(None, "--db-path", help="SQLite path or SQLAlchemy URL."),
     refresh: bool = typer.Option(
         True, "--refresh/--resume-only", help="Refresh completed resources."
     ),
@@ -87,7 +80,7 @@ def sync_command(
 ) -> None:
     """Synchronize all PBS resources, or one resource, into the local mirror."""
 
-    settings, engine, _ = _runtime(db_path)
+    settings, engine, _ = _runtime()
     init_db(engine)
     sessions = make_session_factory(engine)
     try:
@@ -107,12 +100,10 @@ def sync_command(
 
 
 @app.command()
-def status(
-    db_path: str | None = typer.Option(None, "--db-path", help="SQLite path or SQLAlchemy URL."),
-) -> None:
+def status() -> None:
     """Show checkpoint status and local row counts for every resource."""
 
-    _, engine, _ = _runtime(db_path)
+    _, engine, _ = _runtime()
     init_db(engine)
     with make_session_factory(engine)() as session:
         for row in mirror_status(session):

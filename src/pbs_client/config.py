@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Annotated, ClassVar
 
 from oa_configurator import (
@@ -17,7 +15,6 @@ from oa_configurator import (
     load_stack_config,
 )
 from pydantic import Field
-
 
 DEFAULT_BASE_URL = "https://data-api.health.gov.au/pbs/api/v3"
 DEFAULT_PUBLIC_KEY = "2384af7c667342ceb5a736fe29f1dc6b"
@@ -80,7 +77,6 @@ class PBSSettings:
     """Configuration used by the HTTP, database, and CLI layers."""
 
     subscription_key: str = DEFAULT_PUBLIC_KEY
-    db_path: Path = Path("pbs_client.db")
     base_url: str = DEFAULT_BASE_URL
     rate_limit_seconds: float = DEFAULT_RATE_LIMIT_SECONDS
 
@@ -92,16 +88,4 @@ class PBSSettings:
             subscription_key=config.subscription_key,
             base_url=config.base_url.rstrip("/"),
             rate_limit_seconds=config.rate_limit_seconds,
-        )
-
-    @classmethod
-    def from_env(cls) -> PBSSettings:
-        """Build settings from the documented ``PBS_CLIENT_*`` variables."""
-
-        rate = os.getenv("PBS_CLIENT_RATE_LIMIT_SECONDS")
-        return cls(
-            subscription_key=os.getenv("PBS_CLIENT_SUBSCRIPTION_KEY", DEFAULT_PUBLIC_KEY),
-            db_path=Path(os.getenv("PBS_CLIENT_DB_PATH", "./pbs_client.db")),
-            base_url=os.getenv("PBS_CLIENT_BASE_URL", DEFAULT_BASE_URL).rstrip("/"),
-            rate_limit_seconds=float(rate) if rate else DEFAULT_RATE_LIMIT_SECONDS,
         )

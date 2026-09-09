@@ -49,7 +49,7 @@ def _as_date(value: str | date | datetime) -> date:
             pass
     for fmt in ("%d/%m/%Y", "%Y%m%d", "%d-%m-%Y"):
         try:
-            return datetime.strptime(text, fmt).date()
+            return datetime.strptime(text, fmt).date()  # noqa: DTZ007 - date-only formats
         except ValueError:
             pass
     raise ValueError(f"cannot parse PBS date: {value!r}")
@@ -68,7 +68,7 @@ def find_items(
     session: Session,
     item_code: str,
     *,
-    schedule_code: float | int | None = None,
+    schedule_code: float | None = None,
     as_of: date | datetime | str | None = None,
 ) -> list[Item]:
     """Find PBS items by ``pbs_code`` and optionally by schedule/date."""

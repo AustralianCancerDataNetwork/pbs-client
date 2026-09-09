@@ -33,13 +33,11 @@ subscription_key = "your-subscription-key"
 ```
 
 Set `OA_CONFIG_PATH` before invoking the commands when using a config file
-outside `~/.config/omop/config.toml`. The legacy `--db-path` option remains
-available for local one-off runs and uses the `PBS_CLIENT_*` environment
-variables for API settings.
+outside `~/.config/omop/config.toml`.
 
 The public API is deliberately rate limited to one request per twenty seconds. The client enforces that interval process-wide, including retries and page continuations. Tests use local fixtures and never call the API.
 
-Configuration is normally read from `oa-configurator`. Direct library use still
-supports `PBS_CLIENT_SUBSCRIPTION_KEY`, `PBS_CLIENT_DB_PATH`,
-`PBS_CLIENT_BASE_URL`, and `PBS_CLIENT_RATE_LIMIT_SECONDS`. The database
-defaults to `./pbs_client.db` only for that legacy environment-variable path.
+All configuration — the subscription key, base URL, rate limit, and the
+shared mirror database — is read from `oa-configurator`. There is no
+environment-variable or CLI-flag fallback; run `uv run omop-config configure
+pbs_client` before using the library or CLI.

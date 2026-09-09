@@ -49,7 +49,7 @@ def test_client_construction_does_not_make_network_call():
         called = True
         raise AssertionError("network call during construction")
 
-    PBSClient(transport=transport)
+    PBSClient(PBSSettings(subscription_key="test"), transport=transport)
     assert called is False
 
 
