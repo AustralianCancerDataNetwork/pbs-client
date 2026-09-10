@@ -70,7 +70,7 @@ class ResourceSpec:
 
     @property
     def primary_key(self) -> tuple[str, ...]:
-        return tuple(column.name for column in self.model.__table__.primary_key.columns)
+        return tuple(column.name for column in self.model.__table__.primary_key)
 
 
 RESOURCE_SPECS = (

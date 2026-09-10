@@ -61,7 +61,9 @@ def resolve_schedule(session: Session, as_of: date | datetime | str) -> Schedule
     target = _as_date(as_of)
     schedules = session.scalars(select(Schedule)).all()
     eligible = [schedule for schedule in schedules if _as_date(schedule.effective_date) <= target]
-    return max(eligible, key=lambda schedule: _as_date(schedule.effective_date), default=None)
+    if not eligible:
+        return None
+    return max(eligible, key=lambda schedule: _as_date(schedule.effective_date))
 
 
 def find_items(
