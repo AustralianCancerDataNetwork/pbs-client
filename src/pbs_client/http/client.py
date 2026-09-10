@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 class Sleeper(Protocol):
-    def __call__(self, seconds: float) -> None: ...
+    def __call__(self, seconds: float, /) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)

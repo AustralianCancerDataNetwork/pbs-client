@@ -32,7 +32,7 @@ def upsert_records(session: Session, model: type[Base], records: Iterable[dict[s
     fields = tuple(
         column.name for column in model.__table__.columns if column.name != "raw_payload"
     )
-    primary_key = tuple(column.name for column in model.__table__.primary_key.columns)
+    primary_key = tuple(column.name for column in model.__table__.primary_key)
     written = 0
     for record in records:
         if not isinstance(record, dict):

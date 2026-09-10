@@ -5,7 +5,9 @@ from pbs_client.db import MODEL_BY_NAME, RESOURCE_SPECS, SYNC_ORDER
 
 def test_all_api_resources_have_models_and_keys():
     assert len(RESOURCE_SPECS) == 35
-    assert set(SYNC_ORDER) == set(MODEL_BY_NAME)
+    # ItemOverview is opt-in only (see schema.py): it duplicates Item plus 8
+    # already-synced relationship tables
+    assert set(MODEL_BY_NAME) - set(SYNC_ORDER) == {"ItemOverview"}
     assert all(spec.primary_key for spec in RESOURCE_SPECS)
     assert all(set(spec.primary_key) <= set(spec.fields) for spec in RESOURCE_SPECS)
 
