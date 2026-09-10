@@ -14,8 +14,20 @@ class MarkupBand(PBSRecordMixin, Base):
     """PBS API resource mirrored from endpoint /markup-bands."""
 
     __tablename__ = "pbs_markupband"
+    __table_args__ = (
+        sa.ForeignKeyConstraint(
+            ["schedule_code", "program_code"],
+            ["pbs_program.schedule_code", "pbs_program.program_code"],
+        ),
+        sa.ForeignKeyConstraint(
+            ["schedule_code", "dispensing_rule_mnem"],
+            ["pbs_dispensingrule.schedule_code", "pbs_dispensingrule.dispensing_rule_mnem"],
+        ),
+    )
 
-    schedule_code: so.Mapped[int] = so.mapped_column(sa.Integer, nullable=False, primary_key=True)
+    schedule_code: so.Mapped[int] = so.mapped_column(
+        sa.Integer, sa.ForeignKey("pbs_schedule.schedule_code"), nullable=False, primary_key=True
+    )
     program_code: so.Mapped[str] = so.mapped_column(sa.String(10), nullable=False, primary_key=True)
     dispensing_rule_mnem: so.Mapped[str] = so.mapped_column(
         sa.String(100), nullable=False, primary_key=True
@@ -33,8 +45,16 @@ class SummaryOfChanges(PBSRecordMixin, Base):
     """PBS API resource mirrored from endpoint /summary-of-changes."""
 
     __tablename__ = "pbs_summaryofchanges"
+    __table_args__ = (
+        sa.ForeignKeyConstraint(
+            ["source_schedule_code"],
+            ["pbs_schedule.schedule_code"],
+        ),
+    )
 
-    schedule_code: so.Mapped[int] = so.mapped_column(sa.Integer, nullable=False, primary_key=True)
+    schedule_code: so.Mapped[int] = so.mapped_column(
+        sa.Integer, sa.ForeignKey("pbs_schedule.schedule_code"), nullable=False, primary_key=True
+    )
     source_schedule_code: so.Mapped[int] = so.mapped_column(sa.Integer, nullable=True)
     target_effective_date: so.Mapped[str] = so.mapped_column(sa.String(20), nullable=True)
     source_effective_date: so.Mapped[str] = so.mapped_column(sa.String(20), nullable=True)

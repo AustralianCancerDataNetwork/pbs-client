@@ -145,3 +145,4 @@ TODO.md
 docker/
 *.db
 *.db.*
+scripts/

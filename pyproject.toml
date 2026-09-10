@@ -8,6 +8,7 @@ authors = [{ name = "Australian Cancer Data Network" }]
 license = { text = "MIT" }
 dependencies = [
   "oa-configurator>=1.2.1,<2.0.0",
+  "orm-loader>=1.1.0,<2.0.0",
   "pydantic>=2.0,<3.0",
   "sqlalchemy>=2.0.45",
   "typer>=0.12",

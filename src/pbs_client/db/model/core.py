@@ -27,8 +27,16 @@ class ATC(PBSRecordMixin, Base):
     """PBS API resource mirrored from endpoint /atc-codes."""
 
     __tablename__ = "pbs_atc"
+    __table_args__ = (
+        sa.ForeignKeyConstraint(
+            ["schedule_code", "atc_parent_code"],
+            ["pbs_atc.schedule_code", "pbs_atc.atc_code"],
+        ),
+    )
 
-    schedule_code: so.Mapped[int] = so.mapped_column(sa.Integer, nullable=False, primary_key=True)
+    schedule_code: so.Mapped[int] = so.mapped_column(
+        sa.Integer, sa.ForeignKey("pbs_schedule.schedule_code"), nullable=False, primary_key=True
+    )
     atc_code: so.Mapped[str] = so.mapped_column(sa.String(10), nullable=False, primary_key=True)
     atc_description: so.Mapped[str] = so.mapped_column(sa.String(255), nullable=True)
     atc_level: so.Mapped[int] = so.mapped_column(sa.Integer, nullable=True)
@@ -40,7 +48,9 @@ class Container(PBSRecordMixin, Base):
 
     __tablename__ = "pbs_container"
 
-    schedule_code: so.Mapped[int] = so.mapped_column(sa.Integer, nullable=False, primary_key=True)
+    schedule_code: so.Mapped[int] = so.mapped_column(
+        sa.Integer, sa.ForeignKey("pbs_schedule.schedule_code"), nullable=False, primary_key=True
+    )
     container_code: so.Mapped[int] = so.mapped_column(sa.Integer, nullable=False, primary_key=True)
     container_name: so.Mapped[str] = so.mapped_column(sa.String(4000), nullable=True)
     mark_up: so.Mapped[float] = so.mapped_column(sa.Float, nullable=True)
@@ -57,7 +67,9 @@ class Copayment(PBSRecordMixin, Base):
 
     __tablename__ = "pbs_copayment"
 
-    schedule_code: so.Mapped[int] = so.mapped_column(sa.Integer, nullable=False, primary_key=True)
+    schedule_code: so.Mapped[int] = so.mapped_column(
+        sa.Integer, sa.ForeignKey("pbs_schedule.schedule_code"), nullable=False, primary_key=True
+    )
     general: so.Mapped[float] = so.mapped_column(sa.Float, nullable=True)
     concessional: so.Mapped[float] = so.mapped_column(sa.Float, nullable=True)
     safety_net_general: so.Mapped[float] = so.mapped_column(sa.Float, nullable=True)
@@ -71,8 +83,16 @@ class Criteria(PBSRecordMixin, Base):
     """PBS API resource mirrored from endpoint /criteria."""
 
     __tablename__ = "pbs_criteria"
+    __table_args__ = (
+        sa.ForeignKeyConstraint(
+            ["schedule_code", "criteria_prescribing_txt_id"],
+            ["pbs_prescribingtxt.schedule_code", "pbs_prescribingtxt.prescribing_txt_id"],
+        ),
+    )
 
-    schedule_code: so.Mapped[int] = so.mapped_column(sa.Integer, nullable=False, primary_key=True)
+    schedule_code: so.Mapped[int] = so.mapped_column(
+        sa.Integer, sa.ForeignKey("pbs_schedule.schedule_code"), nullable=False, primary_key=True
+    )
     criteria_prescribing_txt_id: so.Mapped[int] = so.mapped_column(
         sa.Integer, nullable=False, primary_key=True
     )
@@ -85,7 +105,9 @@ class DispensingRule(PBSRecordMixin, Base):
 
     __tablename__ = "pbs_dispensingrule"
 
-    schedule_code: so.Mapped[int] = so.mapped_column(sa.Integer, nullable=False, primary_key=True)
+    schedule_code: so.Mapped[int] = so.mapped_column(
+        sa.Integer, sa.ForeignKey("pbs_schedule.schedule_code"), nullable=False, primary_key=True
+    )
     dispensing_rule_mnem: so.Mapped[str] = so.mapped_column(
         sa.String(100), nullable=False, primary_key=True
     )
@@ -98,8 +120,9 @@ class ExtemporaneousPreparation(PBSRecordMixin, Base):
     """PBS API resource mirrored from endpoint /extemporaneous-preparations."""
 
     __tablename__ = "pbs_extemporaneouspreparation"
-
-    schedule_code: so.Mapped[int] = so.mapped_column(sa.Integer, nullable=False, primary_key=True)
+    schedule_code: so.Mapped[int] = so.mapped_column(
+        sa.Integer, sa.ForeignKey("pbs_schedule.schedule_code"), nullable=False, primary_key=True
+    )
     preparation: so.Mapped[str] = so.mapped_column(sa.String(500), nullable=True)
     maximum_quantity: so.Mapped[float] = so.mapped_column(sa.Float, nullable=True)
     pbs_code: so.Mapped[str] = so.mapped_column(sa.String(50), nullable=False, primary_key=True)
@@ -110,8 +133,16 @@ class Fee(PBSRecordMixin, Base):
     """PBS API resource mirrored from endpoint /fees."""
 
     __tablename__ = "pbs_fee"
+    __table_args__ = (
+        sa.ForeignKeyConstraint(
+            ["schedule_code", "program_code"],
+            ["pbs_program.schedule_code", "pbs_program.program_code"],
+        ),
+    )
 
-    schedule_code: so.Mapped[int] = so.mapped_column(sa.Integer, nullable=False, primary_key=True)
+    schedule_code: so.Mapped[int] = so.mapped_column(
+        sa.Integer, sa.ForeignKey("pbs_schedule.schedule_code"), nullable=False, primary_key=True
+    )
     program_code: so.Mapped[str] = so.mapped_column(sa.String(10), nullable=False, primary_key=True)
     dispensing_fee_ready_prepared: so.Mapped[float | None] = so.mapped_column(
         sa.Float, nullable=True
@@ -145,8 +176,16 @@ class Indication(PBSRecordMixin, Base):
     """PBS API resource mirrored from endpoint /indications."""
 
     __tablename__ = "pbs_indication"
+    __table_args__ = (
+        sa.ForeignKeyConstraint(
+            ["schedule_code", "indication_prescribing_txt_id"],
+            ["pbs_prescribingtxt.schedule_code", "pbs_prescribingtxt.prescribing_txt_id"],
+        ),
+    )
 
-    schedule_code: so.Mapped[int] = so.mapped_column(sa.Integer, nullable=False, primary_key=True)
+    schedule_code: so.Mapped[int] = so.mapped_column(
+        sa.Integer, sa.ForeignKey("pbs_schedule.schedule_code"), nullable=False, primary_key=True
+    )
     indication_prescribing_txt_id: so.Mapped[int] = so.mapped_column(
         sa.Integer, nullable=False, primary_key=True
     )
@@ -160,7 +199,9 @@ class Organisation(PBSRecordMixin, Base):
 
     __tablename__ = "pbs_organisation"
 
-    schedule_code: so.Mapped[int] = so.mapped_column(sa.Integer, nullable=False, primary_key=True)
+    schedule_code: so.Mapped[int] = so.mapped_column(
+        sa.Integer, sa.ForeignKey("pbs_schedule.schedule_code"), nullable=False, primary_key=True
+    )
     organisation_id: so.Mapped[int] = so.mapped_column(sa.Integer, nullable=False, primary_key=True)
     name: so.Mapped[str] = so.mapped_column(sa.String(4000), nullable=True)
     abn: so.Mapped[str | None] = so.mapped_column(sa.String(100), nullable=True)
@@ -176,8 +217,16 @@ class Parameter(PBSRecordMixin, Base):
     """PBS API resource mirrored from endpoint /parameters."""
 
     __tablename__ = "pbs_parameter"
+    __table_args__ = (
+        sa.ForeignKeyConstraint(
+            ["schedule_code", "parameter_prescribing_txt_id"],
+            ["pbs_prescribingtxt.schedule_code", "pbs_prescribingtxt.prescribing_txt_id"],
+        ),
+    )
 
-    schedule_code: so.Mapped[int] = so.mapped_column(sa.Integer, nullable=False, primary_key=True)
+    schedule_code: so.Mapped[int] = so.mapped_column(
+        sa.Integer, sa.ForeignKey("pbs_schedule.schedule_code"), nullable=False, primary_key=True
+    )
     assessment_type: so.Mapped[str] = so.mapped_column(
         sa.String(20), nullable=False, primary_key=True
     )
@@ -192,7 +241,9 @@ class PrescribingTxt(PBSRecordMixin, Base):
 
     __tablename__ = "pbs_prescribingtxt"
 
-    schedule_code: so.Mapped[int] = so.mapped_column(sa.Integer, nullable=False, primary_key=True)
+    schedule_code: so.Mapped[int] = so.mapped_column(
+        sa.Integer, sa.ForeignKey("pbs_schedule.schedule_code"), nullable=False, primary_key=True
+    )
     prescribing_txt_id: so.Mapped[int] = so.mapped_column(
         sa.Integer, nullable=False, primary_key=True
     )
@@ -210,7 +261,9 @@ class Program(PBSRecordMixin, Base):
 
     __tablename__ = "pbs_program"
 
-    schedule_code: so.Mapped[int] = so.mapped_column(sa.Integer, nullable=False, primary_key=True)
+    schedule_code: so.Mapped[int] = so.mapped_column(
+        sa.Integer, sa.ForeignKey("pbs_schedule.schedule_code"), nullable=False, primary_key=True
+    )
     program_code: so.Mapped[str] = so.mapped_column(sa.String(10), nullable=False, primary_key=True)
     program_title: so.Mapped[str] = so.mapped_column(sa.String(400), nullable=True)
 
@@ -219,8 +272,20 @@ class ProgramDispensingRules(PBSRecordMixin, Base):
     """PBS API resource mirrored from endpoint /program-dispensing-rules."""
 
     __tablename__ = "pbs_programdispensingrules"
+    __table_args__ = (
+        sa.ForeignKeyConstraint(
+            ["schedule_code", "program_code"],
+            ["pbs_program.schedule_code", "pbs_program.program_code"],
+        ),
+        sa.ForeignKeyConstraint(
+            ["schedule_code", "dispensing_rule_mnem"],
+            ["pbs_dispensingrule.schedule_code", "pbs_dispensingrule.dispensing_rule_mnem"],
+        ),
+    )
 
-    schedule_code: so.Mapped[int] = so.mapped_column(sa.Integer, nullable=False, primary_key=True)
+    schedule_code: so.Mapped[int] = so.mapped_column(
+        sa.Integer, sa.ForeignKey("pbs_schedule.schedule_code"), nullable=False, primary_key=True
+    )
     program_code: so.Mapped[str] = so.mapped_column(sa.String(10), nullable=False, primary_key=True)
     dispensing_rule_mnem: so.Mapped[str] = so.mapped_column(
         sa.String(100), nullable=False, primary_key=True
@@ -233,7 +298,9 @@ class RestrictionText(PBSRecordMixin, Base):
 
     __tablename__ = "pbs_restrictiontext"
 
-    schedule_code: so.Mapped[int] = so.mapped_column(sa.Integer, nullable=False, primary_key=True)
+    schedule_code: so.Mapped[int] = so.mapped_column(
+        sa.Integer, sa.ForeignKey("pbs_schedule.schedule_code"), nullable=False, primary_key=True
+    )
     res_code: so.Mapped[str] = so.mapped_column(sa.String(83), nullable=False, primary_key=True)
     treatment_phase: so.Mapped[str | None] = so.mapped_column(sa.String(4000), nullable=True)
     authority_method: so.Mapped[str | None] = so.mapped_column(sa.String(4000), nullable=True)

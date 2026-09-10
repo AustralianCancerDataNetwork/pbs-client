@@ -23,20 +23,22 @@ from pbs_client.toolkit.core import (
 
 def test_offline_item_restriction_and_atc_expansion(session_factory):
     with session_factory() as session:
+        session.add(
+            Schedule(
+                schedule_code=7,
+                effective_date="2026-01-01",
+                effective_year=2026,
+                revision_number=1,
+                start_tsp="2026-01-01T00:00:00Z",
+                effective_month="January",
+                publication_status="PUBLISHED",
+            )
+        )
+        session.commit()
         session.add_all(
             [
-                Schedule(
-                    schedule_code=7,
-                    effective_date="2026-01-01",
-                    effective_year=2026,
-                    revision_number=1,
-                    start_tsp="2026-01-01T00:00:00Z",
-                    effective_month="January",
-                    publication_status="PUBLISHED",
-                ),
                 Item(schedule_code=7, li_item_id="li-1", pbs_code="X1", drug_name="Drug"),
                 ATC(schedule_code=7, atc_code="A01", atc_description="Example", atc_level=1),
-                ItemAtcRltd(schedule_code=7, pbs_code="X1", atc_code="A01", atc_priority_pct=100),
                 RestrictionText(
                     schedule_code=7,
                     res_code="R1",
@@ -48,13 +50,6 @@ def test_offline_item_restriction_and_atc_expansion(session_factory):
                     first_listing_date="2026-01-01",
                     written_authority_required="N",
                 ),
-                ItemRestrictionRltd(
-                    schedule_code=7,
-                    pbs_code="X1",
-                    res_code="R1",
-                    benefit_type_code="R",
-                    restriction_indicator="Y",
-                ),
                 PrescribingTxt(
                     schedule_code=7,
                     prescribing_txt_id=9,
@@ -64,6 +59,19 @@ def test_offline_item_restriction_and_atc_expansion(session_factory):
                     complex_authority_rqrd_ind="N",
                     apply_to_increase_mq_flag="N",
                     apply_to_increase_nr_flag="N",
+                ),
+            ]
+        )
+        session.commit()
+        session.add_all(
+            [
+                ItemAtcRltd(schedule_code=7, pbs_code="X1", atc_code="A01", atc_priority_pct=100),
+                ItemRestrictionRltd(
+                    schedule_code=7,
+                    pbs_code="X1",
+                    res_code="R1",
+                    benefit_type_code="R",
+                    restriction_indicator="Y",
                 ),
                 RstrctnPrscrbngTxtRltd(
                     schedule_code=7, res_code="R1", prescribing_text_id=9, pt_position=1
@@ -83,27 +91,33 @@ def test_offline_item_restriction_and_atc_expansion(session_factory):
 
 def test_indication_candidates_preserve_structured_provenance(session_factory):
     with session_factory() as session:
+        session.add(Schedule(schedule_code=8, effective_date="2026-02-01", effective_year=2026))
+        session.commit()
         session.add_all(
             [
-                Schedule(schedule_code=8, effective_date="2026-02-01", effective_year=2026),
                 Item(schedule_code=8, li_item_id="li-2", pbs_code="X2", drug_name="Drug"),
                 RestrictionText(
                     schedule_code=8,
                     res_code="R2",
                     schedule_html_text="<p>Fallback should not be used</p>",
                 ),
+                PrescribingTxt(
+                    schedule_code=8,
+                    prescribing_txt_id=10,
+                    prescribing_type="INDICATION",
+                    prescribing_txt="Condition text",
+                ),
+            ]
+        )
+        session.commit()
+        session.add_all(
+            [
                 ItemRestrictionRltd(
                     schedule_code=8,
                     pbs_code="X2",
                     res_code="R2",
                     benefit_type_code="A",
                     restriction_indicator="Y",
-                ),
-                PrescribingTxt(
-                    schedule_code=8,
-                    prescribing_txt_id=10,
-                    prescribing_type="INDICATION",
-                    prescribing_txt="Condition text",
                 ),
                 RstrctnPrscrbngTxtRltd(
                     schedule_code=8,
@@ -136,9 +150,10 @@ def test_indication_candidates_preserve_structured_provenance(session_factory):
 
 def test_indication_text_uses_clean_fallback_and_excludes_notes(session_factory):
     with session_factory() as session:
+        session.add(Schedule(schedule_code=9, effective_date="2026-03-01", effective_year=2026))
+        session.commit()
         session.add_all(
             [
-                Schedule(schedule_code=9, effective_date="2026-03-01", effective_year=2026),
                 Item(schedule_code=9, li_item_id="li-3", pbs_code="X3", drug_name="Drug"),
                 RestrictionText(
                     schedule_code=9,
@@ -150,6 +165,11 @@ def test_indication_text_uses_clean_fallback_and_excludes_notes(session_factory)
                     res_code="N3",
                     schedule_html_text="<p>This is an administrative note.</p>",
                 ),
+            ]
+        )
+        session.commit()
+        session.add_all(
+            [
                 ItemRestrictionRltd(
                     schedule_code=9,
                     pbs_code="X3",
@@ -177,6 +197,8 @@ def test_indication_text_uses_clean_fallback_and_excludes_notes(session_factory)
 
 def test_item_lookup_with_unknown_date_returns_no_items(session_factory):
     with session_factory() as session:
+        session.add(Schedule(schedule_code=7, effective_date="2026-01-01", effective_year=2026))
+        session.commit()
         session.add(Item(schedule_code=7, li_item_id="li-4", pbs_code="X4", drug_name="Drug"))
         session.commit()
 

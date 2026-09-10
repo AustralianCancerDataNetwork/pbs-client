@@ -1,6 +1,6 @@
 """Local SQLAlchemy mirror for PBS API resources."""
 
-from pbs_client.db.engine import init_db, make_session_factory
+from pbs_client.db.engine import fk_checks_disabled_for_refresh, init_db, make_session_factory
 from pbs_client.db.model import Base
 from pbs_client.db.schema import (
     RESOURCE_BY_ENDPOINT,
@@ -20,6 +20,7 @@ __all__ = [
     "SYNC_ORDER",
     "Base",
     "SyncState",
+    "fk_checks_disabled_for_refresh",
     "init_db",
     "make_session_factory",
 ]

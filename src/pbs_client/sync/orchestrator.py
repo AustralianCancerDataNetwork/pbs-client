@@ -7,10 +7,11 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
 
 from pbs_client.db import MODEL_BY_NAME, RESOURCE_BY_NAME, RESOURCE_SPECS, SYNC_ORDER, SyncState
+from pbs_client.db.engine import fk_checks_disabled_for_refresh
 from pbs_client.db.model import Base
 from pbs_client.errors import PBSSyncError
 from pbs_client.http import PBSClient
@@ -78,14 +79,25 @@ class SyncOrchestrator:
         """
 
         names = self._resource_names(resource)
-        results: list[SyncResult] = []
-        for name in names:
-            state = self._get_or_create_state(name)
-            if state.status == "complete" and not refresh_completed:
-                results.append(SyncResult(name, state.page, state.records_written, state.status))
-                continue
-            results.append(self._sync_resource(name, state, limit=limit))
-        return results
+        probe = self.session_factory()
+        try:
+            engine = probe.get_bind()
+        finally:
+            probe.close()
+        if not isinstance(engine, Engine):
+            raise PBSSyncError("PBS sync requires a session factory bound to an Engine")
+
+        with fk_checks_disabled_for_refresh(engine):
+            results: list[SyncResult] = []
+            for name in names:
+                state = self._get_or_create_state(name)
+                if state.status == "complete" and not refresh_completed:
+                    results.append(
+                        SyncResult(name, state.page, state.records_written, state.status)
+                    )
+                    continue
+                results.append(self._sync_resource(name, state, limit=limit))
+            return results
 
     def _sync_resource(self, name: str, state: SyncState, *, limit: int) -> SyncResult:
         spec = RESOURCE_BY_NAME[name]
