@@ -19,4 +19,3 @@ def session_factory():
 @pytest.fixture
 def fixture_dir() -> Path:
     return Path(__file__).parent / "fixtures"
-
