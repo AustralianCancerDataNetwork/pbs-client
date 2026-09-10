@@ -101,6 +101,8 @@ RESOURCE_SPECS = (
     ResourceSpec("Fee", "/fees", Fee),
     ResourceSpec("Indication", "/indications", Indication),
     ResourceSpec("Item", "/items", Item),
+    # Opt-in only: excluded from SYNC_ORDER below. Its own fields and every
+    # nested array duplicate Item plus 8 already-synced relationship tables
     ResourceSpec("ItemOverview", "/item-overview", ItemOverview),
     ResourceSpec("ItemAmt", "/amt-items", ItemAmt),
     ResourceSpec("ItemAtcRltd", "/item-atc-relationships", ItemAtcRltd),
@@ -166,7 +168,6 @@ SYNC_ORDER = (
     "Fee",
     "RestrictionText",
     "Item",
-    "ItemOverview",
     "ContainerWholesalerRltd",
     "CriteriaParameterRltd",
     "ExPrepSfpRltd",

@@ -21,6 +21,13 @@ dev = [
   "ruff>=0.4",
   "import-linter>=2.0",
 ]
+notebooks = [
+  "jupyterlab>=4.0",
+  "ipykernel>=6.0",
+  "pandas>=2.0",
+  "matplotlib>=3.8",
+  "seaborn>=0.13",
+]
 
 [project.scripts]
 pbs-client = "pbs_client.cli:main"
