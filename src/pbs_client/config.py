@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import isfinite
 from typing import Annotated, ClassVar
 
 from oa_configurator import (
@@ -19,6 +20,7 @@ from pydantic import Field
 DEFAULT_BASE_URL = "https://data-api.health.gov.au/pbs/api/v3"
 DEFAULT_PUBLIC_KEY = "2384af7c667342ceb5a736fe29f1dc6b"
 DEFAULT_RATE_LIMIT_SECONDS = 20.0
+MIN_RATE_LIMIT_SECONDS = 3.0
 
 
 class PBSClientConfig(PackageConfigBase):
@@ -45,7 +47,7 @@ class PBSClientConfig(PackageConfigBase):
     )
     rate_limit_seconds: float = Field(
         default=DEFAULT_RATE_LIMIT_SECONDS,
-        gt=0,
+        ge=MIN_RATE_LIMIT_SECONDS,
         description="Minimum delay between PBS API requests in seconds.",
     )
 
@@ -79,6 +81,13 @@ class PBSSettings:
     subscription_key: str = DEFAULT_PUBLIC_KEY
     base_url: str = DEFAULT_BASE_URL
     rate_limit_seconds: float = DEFAULT_RATE_LIMIT_SECONDS
+
+    def __post_init__(self) -> None:
+        if not isfinite(self.rate_limit_seconds) or self.rate_limit_seconds < MIN_RATE_LIMIT_SECONDS:
+            raise ValueError(
+                "rate_limit_seconds must be at least "
+                f"{MIN_RATE_LIMIT_SECONDS:g} seconds to respect the PBS API quota"
+            )
 
     @classmethod
     def from_config(cls, config: PBSClientConfig) -> PBSSettings:

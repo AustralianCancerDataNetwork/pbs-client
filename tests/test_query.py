@@ -203,3 +203,40 @@ def test_item_lookup_with_unknown_date_returns_no_items(session_factory):
         session.commit()
 
         assert find_items(session, "X4", as_of="2025-01-01") == []
+
+
+def test_schedule_resolution_tie_breaks_by_schedule_code(session_factory):
+    with session_factory() as session:
+        session.add_all(
+            [
+                Schedule(schedule_code=10, effective_date="2026-04-01", effective_year=2026),
+                Schedule(schedule_code=11, effective_date="2026-04-01", effective_year=2026),
+            ]
+        )
+        session.commit()
+
+        assert resolve_schedule(session, "2026-05-01").schedule_code == 11
+
+
+def test_unknown_benefit_type_is_preserved(session_factory):
+    with session_factory() as session:
+        session.add(Schedule(schedule_code=12, effective_date="2026-05-01", effective_year=2026))
+        session.commit()
+        session.add_all(
+            [
+                Item(schedule_code=12, li_item_id="li-5", pbs_code="X5", drug_name="Drug"),
+                RestrictionText(schedule_code=12, res_code="R5", schedule_html_text="Use for condition"),
+                ItemRestrictionRltd(
+                    schedule_code=12,
+                    pbs_code="X5",
+                    res_code="R5",
+                    benefit_type_code="Z",
+                    restriction_indicator="Y",
+                ),
+            ]
+        )
+        session.commit()
+
+        indications = get_item_indication_text(session, session.get(Item, (12, "li-5")))
+
+    assert indications[0].benefit_type_code == "Z"

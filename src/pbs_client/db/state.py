@@ -26,10 +26,12 @@ class SyncState(Base):
     last_error: Mapped[str | None] = mapped_column(Text)
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
 
-    def begin(self) -> None:
+    def begin(self, *, page_limit: int) -> None:
         self.status = "in_progress"
         self.started_at = datetime.now(UTC)
+        self.completed_at = None
         self.last_error = None
+        self.metadata_json = {**self.metadata_json, "page_limit": page_limit}
 
     def checkpoint(self, page: int, count: int, metadata: dict[str, Any]) -> None:
         self.page = page
