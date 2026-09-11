@@ -8,15 +8,17 @@ import threading
 import time
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urljoin
 from urllib.request import Request, urlopen
 
-from pbs_client.config import PBSSettings
-from pbs_client.errors import PBSAPIError, PBSTransportError
+from pbs_client.config import DEFAULT_RATE_LIMIT_SECONDS, PBSSettings
+from pbs_client.errors import PBSAPIError, PBSHTTPError, PBSInvalidResponseError, PBSTransportError
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_PAGE_SIZE = 5_000
 
 
 class Sleeper(Protocol):
@@ -39,13 +41,48 @@ def _urlopen_transport(method: str, url: str, headers: Mapping[str, str]) -> Tra
         return TransportResponse(response.status, dict(response.headers), response.read())
 
 
+def _header_value(headers: Mapping[str, str], name: str) -> str | None:
+    """Read a response header without depending on its casing."""
+
+    return next((value for key, value in headers.items() if key.lower() == name.lower()), None)
+
+
+def _response_diagnostic(response: TransportResponse) -> str:
+    """Return bounded response details suitable for an error message."""
+
+    content_type = _header_value(response.headers, "Content-Type") or "<missing>"
+    body = response.body.strip()
+    if not body:
+        preview = "<empty>"
+    else:
+        preview = " ".join(body[:200].decode("utf-8", errors="replace").split())
+        if len(body) > 200:
+            preview += "..."
+    return (
+        f"HTTP {response.status_code}; content-type={content_type!r}; "
+        f"body_bytes={len(response.body)}; body_preview={preview!r}"
+    )
+
+
+def _retry_after_seconds(value: str | None) -> float | None:
+    """Parse the numeric form of ``Retry-After`` without guessing dates."""
+
+    if value is None:
+        return None
+    try:
+        seconds = float(value)
+    except ValueError:
+        return None
+    return seconds if seconds >= 0 else None
+
+
 class GlobalRateLimiter:
     """One process-wide monotonic gate shared by every PBS client instance."""
 
     _lock = threading.Lock()
     _next_allowed = 0.0
 
-    def __init__(self, interval: float = 20.0, sleeper: Sleeper = time.sleep) -> None:
+    def __init__(self, interval: float = DEFAULT_RATE_LIMIT_SECONDS, sleeper: Sleeper = time.sleep) -> None:
         self.interval = max(0.0, interval)
         self.sleeper = sleeper
 
@@ -122,11 +159,13 @@ class PBSClient:
         endpoint: str,
         *,
         page: int = 1,
-        limit: int = 100_000,
+        limit: int = DEFAULT_PAGE_SIZE,
         params: Mapping[str, Any] | None = None,
     ) -> Page:
         """Fetch and decode one page without adding a schedule filter."""
 
+        if limit < 1:
+            raise ValueError("limit must be at least 1")
         query: dict[str, Any] = dict(params or {})
         query.update(page=page, limit=limit)
         query_string = urlencode(query, doseq=True)
@@ -137,22 +176,30 @@ class PBSClient:
         try:
             document = json.loads(response.body.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise PBSAPIError(f"PBS endpoint {endpoint} returned invalid JSON") from exc
+            raise PBSInvalidResponseError(
+                f"PBS endpoint {endpoint} returned invalid JSON ({_response_diagnostic(response)})"
+            ) from exc
         if not isinstance(document, dict) or not isinstance(document.get("data"), list):
-            raise PBSAPIError(f"PBS endpoint {endpoint} returned no JSON data array")
+            raise PBSInvalidResponseError(
+                f"PBS endpoint {endpoint} returned no JSON data array "
+                f"({_response_diagnostic(response)})"
+            )
         metadata = document.get("_meta", {})
         links = document.get("_links", [])
         if isinstance(links, dict):
             links = [links]
         if not isinstance(metadata, dict) or not isinstance(links, list):
-            raise PBSAPIError(f"PBS endpoint {endpoint} returned malformed pagination metadata")
+            raise PBSInvalidResponseError(
+                f"PBS endpoint {endpoint} returned malformed pagination metadata "
+                f"({_response_diagnostic(response)})"
+            )
         return Page(endpoint, page, limit, document["data"], metadata, links)
 
     def iter_pages(
         self,
         endpoint: str,
         *,
-        limit: int = 100_000,
+        limit: int = DEFAULT_PAGE_SIZE,
         params: Mapping[str, Any] | None = None,
         start_page: int = 1,
     ) -> Iterator[Page]:
@@ -191,9 +238,17 @@ class PBSClient:
             try:
                 response = self.transport("GET", url, headers)
                 if response.status_code == 429 or response.status_code >= 500:
-                    raise _RetryableStatus(response.status_code)
+                    raise _RetryableStatus(
+                        response.status_code,
+                        _retry_after_seconds(_header_value(response.headers, "Retry-After")),
+                    )
                 if response.status_code >= 400:
-                    raise PBSAPIError(f"PBS API returned HTTP {response.status_code} for {url}")
+                    raise PBSHTTPError(
+                        url,
+                        response.status_code,
+                        attempt + 1,
+                        retryable=False,
+                    )
                 return response
             except _RetryableStatus as exc:
                 last_error = exc
@@ -205,8 +260,21 @@ class PBSClient:
                     )
             except HTTPError as exc:
                 if exc.code < 500 and exc.code != 429:
-                    raise PBSAPIError(f"PBS API returned HTTP {exc.code} for {url}") from exc
-                last_error = exc
+                    raise PBSHTTPError(
+                        url,
+                        exc.code,
+                        attempt + 1,
+                        retryable=False,
+                    ) from exc
+                last_error = _RetryableStatus(
+                    exc.code,
+                    _retry_after_seconds(
+                        _header_value(
+                            cast(Mapping[str, str], exc.headers or {}),
+                            "Retry-After",
+                        )
+                    ),
+                )
             except (URLError, TimeoutError, OSError) as exc:
                 last_error = exc
                 if attempt < self.max_retries:
@@ -214,7 +282,18 @@ class PBSClient:
                 else:
                     logger.warning("PBS API request exhausted transport retries: %s", exc)
             if attempt < self.max_retries:
-                self.limiter.sleeper(self.backoff_base * (2**attempt))
+                delay = self.backoff_base * (2**attempt)
+                if isinstance(last_error, _RetryableStatus):
+                    delay = max(delay, last_error.retry_after_seconds or 0.0)
+                self.limiter.sleeper(delay)
+        if isinstance(last_error, _RetryableStatus):
+            raise PBSHTTPError(
+                url,
+                last_error.status_code,
+                self.max_retries + 1,
+                retryable=True,
+                retry_after_seconds=last_error.retry_after_seconds,
+            ) from last_error
         if last_error is not None:
             raise PBSTransportError(url, self.max_retries + 1, last_error) from last_error
         raise PBSAPIError(f"PBS API request failed after retries: {url}")
@@ -223,3 +302,4 @@ class PBSClient:
 @dataclass(frozen=True, slots=True)
 class _RetryableStatus(Exception):
     status_code: int
+    retry_after_seconds: float | None = None

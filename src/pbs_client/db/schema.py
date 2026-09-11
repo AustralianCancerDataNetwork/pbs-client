@@ -189,3 +189,9 @@ SYNC_ORDER = (
     "SummaryOfChanges",
     "ApiChangelog",
 )
+
+if len(SYNC_ORDER) != len(set(SYNC_ORDER)):
+    raise RuntimeError("SYNC_ORDER contains duplicate resources")
+unknown = sorted(set(SYNC_ORDER) - set(RESOURCE_BY_NAME))
+if unknown:
+    raise RuntimeError(f"SYNC_ORDER contains unregistered resources: {unknown}")

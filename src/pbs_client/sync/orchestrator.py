@@ -14,7 +14,7 @@ from pbs_client.db import MODEL_BY_NAME, RESOURCE_BY_NAME, RESOURCE_SPECS, SYNC_
 from pbs_client.db.engine import fk_checks_disabled_for_refresh
 from pbs_client.db.model import Base
 from pbs_client.errors import PBSSyncError
-from pbs_client.http import PBSClient
+from pbs_client.http import DEFAULT_PAGE_SIZE, PBSClient
 
 logger = logging.getLogger(__name__)
 
@@ -30,10 +30,9 @@ class SyncResult:
 def upsert_records(session: Session, model: type[Base], records: Iterable[dict[str, Any]]) -> int:
     """Insert or update records using the model's declared natural key."""
 
-    fields = tuple(
-        column.name for column in model.__table__.columns if column.name != "raw_payload"
-    )
-    primary_key = tuple(column.name for column in model.__table__.primary_key)
+    spec = next(spec for spec in RESOURCE_SPECS if spec.model is model)
+    fields = spec.fields
+    primary_key = spec.primary_key
     written = 0
     for record in records:
         if not isinstance(record, dict):
@@ -67,7 +66,7 @@ class SyncOrchestrator:
         self,
         *,
         resource: str | None = None,
-        limit: int = 100_000,
+        limit: int = DEFAULT_PAGE_SIZE,
         refresh_completed: bool = True,
     ) -> list[SyncResult]:
         """Sync all resources, or one named resource, and return page summaries.
@@ -75,9 +74,12 @@ class SyncOrchestrator:
         An incomplete resource resumes at the page after its last committed
         checkpoint.  A completed resource is refreshed from page one by
         default so newly published schedules are discovered; upsert semantics
-        keep that refresh idempotent.
+        keep that refresh idempotent and intentionally retain rows missing from
+        later responses as local history.
         """
 
+        if limit < 1:
+            raise PBSSyncError("sync page limit must be at least 1")
         names = self._resource_names(resource)
         probe = self.session_factory()
         try:
@@ -102,11 +104,24 @@ class SyncOrchestrator:
     def _sync_resource(self, name: str, state: SyncState, *, limit: int) -> SyncResult:
         spec = RESOURCE_BY_NAME[name]
         model = MODEL_BY_NAME[name]
-        start_page = state.page + 1 if state.status in {"in_progress", "failed"} else 1
+        stored_limit = state.metadata_json.get("page_limit")
+        can_resume = (
+            state.status in {"in_progress", "failed"}
+            and state.page > 0
+            and stored_limit == limit
+        )
+        start_page = state.page + 1 if can_resume else 1
+        if state.status in {"in_progress", "failed"} and state.page > 0 and not can_resume:
+            logger.info(
+                "Restarting %s from page one because the saved page size is %r, not %s",
+                name,
+                stored_limit,
+                limit,
+            )
         if start_page == 1:
             state.page = 0
             state.records_written = 0
-        state.begin()
+        state.begin(page_limit=limit)
         self._save_state(state)
         pages = 0
         try:
@@ -122,6 +137,7 @@ class SyncOrchestrator:
                         "messages": page.messages,
                         "links": page.links,
                         "synced_at": page.metadata.get("synced_at"),
+                        "page_limit": limit,
                     }
                     current.checkpoint(page.page, count, metadata)
                     session.commit()
@@ -204,7 +220,9 @@ def mirror_status(session: Session) -> list[dict[str, Any]]:
                 "rows": count,
                 "status": state.status if state else "pending",
                 "page": state.page if state else 0,
+                "started_at": state.started_at if state else None,
                 "completed_at": state.completed_at if state else None,
+                "last_error": state.last_error if state else None,
             }
         )
     return rows

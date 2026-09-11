@@ -15,6 +15,31 @@ class PBSAPIError(PBSClientError):
     """The PBS API returned an error or an unusable response."""
 
 
+class PBSHTTPError(PBSAPIError):
+    """The PBS API returned an HTTP error response."""
+
+    def __init__(
+        self,
+        url: str,
+        status_code: int,
+        attempts: int,
+        *,
+        retryable: bool,
+        retry_after_seconds: float | None = None,
+    ) -> None:
+        self.url = url
+        self.status_code = status_code
+        self.attempts = attempts
+        self.retryable = retryable
+        self.retry_after_seconds = retry_after_seconds
+        suffix = f" after {attempts} attempts" if retryable else ""
+        super().__init__(f"PBS API returned HTTP {status_code}{suffix}: {url}")
+
+
+class PBSInvalidResponseError(PBSAPIError):
+    """The PBS API response could not be decoded as the expected document."""
+
+
 class PBSTransportError(PBSAPIError):
     """The PBS API could not be reached after all transport retries."""
 

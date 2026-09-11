@@ -42,7 +42,7 @@ class IndicationText:
     schedule_code: int
     res_code: str
     prescribing_txt_id: int | None
-    benefit_type_code: BenefitTypeCode
+    benefit_type_code: BenefitTypeCode | str
     episodicity: str | None = None
     severity: str | None = None
 
@@ -81,6 +81,7 @@ def _clean_html(value: str | None) -> str | None:
         return None
     parser = _HTMLTextExtractor()
     parser.feed(value)
+    parser.close()
     text = " ".join("".join(parser.parts).split())
     return text or None
 
@@ -103,15 +104,33 @@ def _as_date(value: str | date | datetime) -> date:
     raise ValueError(f"cannot parse PBS date: {value!r}")
 
 
+def _benefit_type(value: str | None) -> BenefitTypeCode | str:
+    """Preserve an API benefit code even when a newer value is introduced."""
+
+    if value is None:
+        return "UNKNOWN"
+    try:
+        return BenefitTypeCode(value)
+    except ValueError:
+        return value
+
+
 def resolve_schedule(session: Session, as_of: date | datetime | str) -> Schedule | None:
     """Resolve the latest schedule effective on ``as_of`` by date."""
 
     target = _as_date(as_of)
     schedules = session.scalars(select(Schedule)).all()
-    eligible = [schedule for schedule in schedules if _as_date(schedule.effective_date) <= target]
+    eligible = [
+        schedule
+        for schedule in schedules
+        if schedule.effective_date is not None and _as_date(schedule.effective_date) <= target
+    ]
     if not eligible:
         return None
-    return max(eligible, key=lambda schedule: _as_date(schedule.effective_date))
+    return max(
+        eligible,
+        key=lambda schedule: (_as_date(schedule.effective_date), schedule.schedule_code),
+    )
 
 
 def find_items(
@@ -209,7 +228,7 @@ def get_item_indication_text(session: Session, item: Item) -> list[IndicationTex
         restriction = session.get(RestrictionText, (item.schedule_code, link.res_code))
         if restriction is None:
             continue
-        benefit_type = BenefitTypeCode(link.benefit_type_code)
+        benefit_type = _benefit_type(link.benefit_type_code)
         structured = _structured_indications(session, item, link, benefit_type)
         if structured:
             results.extend(structured)
@@ -223,7 +242,7 @@ def _structured_indications(
     session: Session,
     item: Item,
     link: ItemRestrictionRltd,
-    benefit_type: BenefitTypeCode,
+    benefit_type: BenefitTypeCode | str,
 ) -> list[IndicationText]:
     text_links = session.scalars(
         select(RstrctnPrscrbngTxtRltd)
@@ -266,7 +285,7 @@ def _fallback_indication(
     item: Item,
     link: ItemRestrictionRltd,
     restriction: RestrictionText,
-    benefit_type: BenefitTypeCode,
+    benefit_type: BenefitTypeCode | str,
 ) -> IndicationText | None:
     text = _clean_html(restriction.schedule_html_text) or _clean_html(restriction.li_html_text)
     if not text:

@@ -7,7 +7,7 @@ from oa_configurator import (
     StackConfig,
 )
 
-from pbs_client.config import PBSClientConfig, PBSSettings
+from pbs_client.config import MIN_RATE_LIMIT_SECONDS, PBSClientConfig, PBSSettings
 
 
 def test_pbs_config_resolves_shared_generic_database(tmp_path: Path):
@@ -25,7 +25,7 @@ def test_pbs_config_resolves_shared_generic_database(tmp_path: Path):
             "pbs_client": {
                 "pbs_db": "pbs_db",
                 "subscription_key": "configured-key",
-                "rate_limit_seconds": 1,
+                "rate_limit_seconds": MIN_RATE_LIMIT_SECONDS,
             }
         },
     )
@@ -34,7 +34,7 @@ def test_pbs_config_resolves_shared_generic_database(tmp_path: Path):
     database = Resolver(stack).resolve_database(config.pbs_db)
 
     assert config.subscription_key == "configured-key"
-    assert config.rate_limit_seconds == 1
+    assert config.rate_limit_seconds == MIN_RATE_LIMIT_SECONDS
     assert database.name == "pbs_db"
     assert database.connection.url == f"sqlite:///{tmp_path / 'pbs.db'}"
 
@@ -43,11 +43,11 @@ def test_settings_can_be_built_from_package_config():
     config = PBSClientConfig(
         subscription_key="configured-key",
         base_url="https://example.test/",
-        rate_limit_seconds=2,
+        rate_limit_seconds=MIN_RATE_LIMIT_SECONDS,
     )
 
     settings = PBSSettings.from_config(config)
 
     assert settings.subscription_key == "configured-key"
     assert settings.base_url == "https://example.test"
-    assert settings.rate_limit_seconds == 2
+    assert settings.rate_limit_seconds == MIN_RATE_LIMIT_SECONDS
