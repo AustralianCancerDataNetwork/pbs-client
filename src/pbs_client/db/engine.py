@@ -17,6 +17,7 @@ def _set_sqlite_foreign_keys(dbapi_connection, enabled: bool) -> int:
     """Set this connection's FK flag outside any SQLite transaction."""
 
     autocommit = dbapi_connection.autocommit
+    dbapi_connection.rollback()
     dbapi_connection.autocommit = True
     try:
         value = "ON" if enabled else "OFF"
@@ -40,9 +41,9 @@ def fk_checks_disabled_for_refresh(engine: Engine) -> Iterator[None]:
 
     The orchestrator commits each API page in a fresh session, so a session
     scoped PRAGMA/replication-role change would only affect one arbitrary pool
-    connection.  SQLite uses pool checkout/checkin listeners; Postgres uses
-    orm_loader's engine-scoped replica role and disposes the pool afterwards so
-    no connection carrying the disabled role can be reused.
+    connection. SQLite disables checks on checkout and restores them after the
+    refresh; Postgres disposes the pool so disabled replica connections cannot
+    be reused.
     """
 
     backend = resolve_backend(engine)
@@ -58,31 +59,34 @@ def fk_checks_disabled_for_refresh(engine: Engine) -> Iterator[None]:
     if backend.name != "sqlite":
         raise NotImplementedError(f"Unsupported database backend for PBS refresh: {backend.name}")
 
-    def disable_on_pool_event(dbapi_connection, *_args) -> None:
-        _set_sqlite_foreign_keys(dbapi_connection, False)
+    def disable_on_checkout(dbapi_connection, *_args) -> None:
+        cursor = dbapi_connection.execute("PRAGMA foreign_keys")
+        try:
+            if cursor.fetchone()[0] != 0:
+                _set_sqlite_foreign_keys(dbapi_connection, False)
+        finally:
+            cursor.close()
 
-    def enable_on_checkin(dbapi_connection, *_args) -> None:
-        if dbapi_connection is not None:
-            _set_sqlite_foreign_keys(dbapi_connection, True)
-
-    event.listen(engine, "connect", disable_on_pool_event)
-    event.listen(engine, "checkout", disable_on_pool_event)
-    event.listen(engine, "checkin", enable_on_checkin)
+    event.listen(engine, "checkout", disable_on_checkout)
     try:
         yield
     finally:
-        event.remove(engine, "connect", disable_on_pool_event)
-        event.remove(engine, "checkout", disable_on_pool_event)
-        try:
-            with engine.connect() as connection:
-                state = _set_sqlite_foreign_keys(
-                    connection.connection.driver_connection,
-                    True,
-                )
-                if state != 1:
-                    raise RuntimeError("Failed to restore SQLite foreign-key enforcement")
-        finally:
-            event.remove(engine, "checkin", enable_on_checkin)
+        event.remove(engine, "checkout", disable_on_checkout)
+        database = engine.url.database
+        in_memory = (
+            database in (None, "", ":memory:", "file::memory:")
+            or engine.url.query.get("mode") == "memory"
+        )
+        if not in_memory:
+            # File-backed pool connections may still have FK checks disabled.
+            engine.dispose()
+        with engine.connect() as connection:
+            state = _set_sqlite_foreign_keys(
+                connection.connection.driver_connection,
+                True,
+            )
+            if state != 1:
+                raise RuntimeError("Failed to restore SQLite foreign-key enforcement")
 
 
 def make_session_factory(engine: Engine):

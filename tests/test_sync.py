@@ -85,6 +85,63 @@ def test_sync_fails_instead_of_completing_below_api_total(session_factory):
         assert state.completed_at is None
 
 
+def test_sync_progress_tracks_page_totals(session_factory, monkeypatch):
+    observed = []
+
+    class RecordingProgress:
+        def __init__(self, *_columns, **_options):
+            self.total = None
+            self.completed = 0
+            observed.append(self)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+        def add_task(self, _description, *, total=None, completed=0):
+            self.total = total
+            self.completed = completed
+            return 1
+
+        def update(self, _task_id, *, total=None):
+            if total is not None:
+                self.total = total
+
+        def advance(self, _task_id, amount):
+            self.completed += amount
+
+    sync_module = import_module("pbs_client.sync.orchestrator")
+    monkeypatch.setattr(sync_module, "Progress", RecordingProgress)
+    pages = [
+        Page(
+            "/schedules",
+            1,
+            2,
+            [schedule(1, "2026-01-01"), schedule(2, "2026-01-01")],
+            {"total_records": 3},
+            [],
+        ),
+        Page(
+            "/schedules",
+            2,
+            2,
+            [schedule(3, "2026-01-01")],
+            {"total_records": 3},
+            [],
+        ),
+    ]
+
+    SyncOrchestrator(FakeClient(pages), session_factory).run(
+        resource="Schedule", limit=2
+    )
+
+    assert len(observed) == 1
+    assert observed[0].total == 3
+    assert observed[0].completed == 3
+
+
 @pytest.mark.parametrize(
     ("resource", "records_written", "total_records", "exit_code"),
     [
