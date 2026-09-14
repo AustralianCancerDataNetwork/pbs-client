@@ -4,6 +4,7 @@ from pbs_client.db.model import (
     ATC,
     Indication,
     Item,
+    ItemAmt,
     ItemAtcRltd,
     ItemRestrictionRltd,
     PrescribingTxt,
@@ -14,10 +15,13 @@ from pbs_client.db.model import (
 from pbs_client.toolkit.analytics import indication_candidates
 from pbs_client.toolkit.core import (
     BenefitTypeCode,
+    MpComponentSplit,
     expand_item,
     find_items,
+    get_item_amt_hierarchy,
     get_item_indication_text,
     resolve_schedule,
+    split_mp_components,
 )
 
 
@@ -193,6 +197,140 @@ def test_indication_text_uses_clean_fallback_and_excludes_notes(session_factory)
     assert indications[0].source == "restriction_text"
     assert indications[0].text == "Use only for & condition."
     assert indications[0].prescribing_txt_id is None
+
+
+def test_item_amt_hierarchy_orders_and_preserves_source_rows(session_factory):
+    amt_rows = [
+        (40, "MPP", "shared-code", "Same term"),
+        (20, "MP", "shared-code", "Same term"),
+        (30, "MPUU", "unit-code", None),
+        (10, "MP", "shared-code", "Same term"),
+    ]
+    with session_factory() as session:
+        session.add(Schedule(schedule_code=20, effective_date="2026-06-01", effective_year=2026))
+        session.add_all(
+            [
+                Item(schedule_code=20, li_item_id="li-amt", pbs_code="AMT"),
+                Item(schedule_code=20, li_item_id="li-no-mp", pbs_code="NO-MP"),
+            ]
+        )
+        session.commit()
+        session.add_all(
+            ItemAmt(
+                schedule_code=20,
+                li_item_id="li-amt",
+                pbs_concept_id=concept_id,
+                concept_type_code=concept_type,
+                amt_code=amt_code,
+                preferred_term=term,
+            )
+            for concept_id, concept_type, amt_code, term in amt_rows
+        )
+        session.add(
+            ItemAmt(
+                schedule_code=20,
+                li_item_id="li-no-mp",
+                pbs_concept_id=50,
+                concept_type_code="MPP",
+            )
+        )
+        session.commit()
+
+        item = session.get(Item, (20, "li-amt"))
+        hierarchy = get_item_amt_hierarchy(session, item)
+        no_amt_rows = get_item_amt_hierarchy(session, Item(schedule_code=20, li_item_id="absent"))
+        no_mp_rows = split_mp_components(session, session.get(Item, (20, "li-no-mp")))
+
+    assert all(isinstance(concept, ItemAmt) for concept in hierarchy)
+    assert [(concept.concept_type_code, concept.pbs_concept_id) for concept in hierarchy] == [
+        ("MP", 10),
+        ("MP", 20),
+        ("MPUU", 30),
+        ("MPP", 40),
+    ]
+    assert [concept.amt_code for concept in hierarchy[:2]] == ["shared-code", "shared-code"]
+    assert no_amt_rows == []
+    assert no_mp_rows == []
+
+
+def test_split_mp_components_uses_unambiguous_fields_and_preserves_terms(session_factory):
+    source_rows = [
+        (1, "  Aspirin + metformin  ", "aspirin + METFORMIN"),
+        (2, None, "One + Two"),
+        (3, "Floxacillin", "Flucloxacillin"),
+        (8, None, None),
+        (9, "Single component", "Single component"),
+        (10, "Repeated + Repeated", "Repeated + Repeated"),
+    ]
+    with session_factory() as session:
+        session.add(Schedule(schedule_code=21, effective_date="2026-06-01", effective_year=2026))
+        session.add(Item(schedule_code=21, li_item_id="li-components", pbs_code="COMPONENTS"))
+        session.flush()
+        session.add_all(
+            [
+                ItemAmt(
+                    schedule_code=21,
+                    li_item_id="li-components",
+                    pbs_concept_id=concept_id,
+                    concept_type_code="MP",
+                    preferred_term=preferred,
+                    pbs_preferred_term=pbs_preferred,
+                )
+                for concept_id, preferred, pbs_preferred in source_rows
+            ]
+        )
+        session.flush()
+        results = split_mp_components(session, session.get(Item, (21, "li-components")))
+
+    assert all(isinstance(result, MpComponentSplit) for result in results)
+    by_concept_id = {result.pbs_concept_id: result for result in results}
+    assert [result.status for result in results] == [
+        "split",
+        "split",
+        "divergent",
+        "missing",
+        "single_term",
+        "split",
+    ]
+    assert by_concept_id[1].source_field == "preferred_term"
+    assert by_concept_id[1].source_term == "  Aspirin + metformin  "
+    assert by_concept_id[1].component_terms == ("Aspirin", "metformin")
+    assert by_concept_id[2].source_field == "pbs_preferred_term"
+    assert by_concept_id[2].component_terms == ("One", "Two")
+    assert by_concept_id[3].field_divergence == ("Floxacillin", "Flucloxacillin")
+    assert by_concept_id[9].component_terms == ("Single component",)
+    assert by_concept_id[10].component_terms == ("Repeated", "Repeated")
+
+
+def test_split_mp_components_rejects_unverified_separators(session_factory):
+    source_rows = [
+        (4, "Formula with vitamins and minerals"),
+        (5, "Estradiol (&) estradiol + dydrogesterone"),
+        (6, "Drug A+Drug B"),
+        (7, "Drug + "),
+    ]
+    with session_factory() as session:
+        session.add(Schedule(schedule_code=22, effective_date="2026-06-01", effective_year=2026))
+        session.add(Item(schedule_code=22, li_item_id="li-unsupported", pbs_code="UNSUPPORTED"))
+        session.flush()
+        session.add_all(
+            [
+                ItemAmt(
+                    schedule_code=22,
+                    li_item_id="li-unsupported",
+                    pbs_concept_id=concept_id,
+                    concept_type_code="MP",
+                    preferred_term=term,
+                    pbs_preferred_term=term,
+                )
+                for concept_id, term in source_rows
+            ]
+        )
+        session.flush()
+        results = split_mp_components(session, session.get(Item, (22, "li-unsupported")))
+
+    assert [result.status for result in results] == ["unsupported"] * len(source_rows)
+    assert all(not result.component_terms and result.reason for result in results)
 
 
 def test_item_lookup_with_unknown_date_returns_no_items(session_factory):

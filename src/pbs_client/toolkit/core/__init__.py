@@ -4,10 +4,12 @@ from pbs_client.toolkit.core.service import (
     BenefitTypeCode,
     IndicationText,
     ItemExpansion,
+    MpComponentSplit,
     RestrictionExpansion,
     expand_item,
     find_items,
     get_item,
+    get_item_amt_hierarchy,
     get_item_atc_codes,
     get_item_indication_text,
     get_item_restrictions,
@@ -15,16 +17,19 @@ from pbs_client.toolkit.core.service import (
     item_restrictions,
     lookup_item,
     resolve_schedule,
+    split_mp_components,
 )
 
 __all__ = [
     "BenefitTypeCode",
     "IndicationText",
     "ItemExpansion",
+    "MpComponentSplit",
     "RestrictionExpansion",
     "expand_item",
     "find_items",
     "get_item",
+    "get_item_amt_hierarchy",
     "get_item_atc_codes",
     "get_item_indication_text",
     "get_item_restrictions",
@@ -32,4 +37,5 @@ __all__ = [
     "item_restrictions",
     "lookup_item",
     "resolve_schedule",
+    "split_mp_components",
 ]
