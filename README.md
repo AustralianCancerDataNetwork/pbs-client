@@ -9,7 +9,12 @@ uv sync --extra dev
 uv run omop-config configure pbs_client
 uv run pbs-client init-db
 uv run pbs-client sync
+uv run pbs-client verify
 ```
+
+`verify` is a read-only check that each recorded sync has written at least the
+API-reported `total_records`; it compares checkpoint writes, not distinct table
+row counts, because some resources intentionally upsert duplicate keys.
 
 The package registers `PBSClientConfig` with `oa-configurator` under the
 `pbs_client` tool name. The configuration wizard creates a `[tools.pbs_client]`

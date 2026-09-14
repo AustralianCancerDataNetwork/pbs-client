@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import json
+
+from pbs_client.db import MODEL_BY_NAME
 from pbs_client.db.model import (
     ATC,
     Copayment,
-    Criteria,
-    CriteriaParameterRltd,
     DispensingRule,
     Fee,
     Indication,
@@ -13,18 +14,17 @@ from pbs_client.db.model import (
     ItemAtcRltd,
     ItemDispensingRuleRltd,
     ItemOrganisationRltd,
-    ItemPrescribingTxtRltd,
     ItemPricingEvent,
     ItemRestrictionRltd,
     MarkupBand,
     Organisation,
-    Parameter,
     PrescribingTxt,
     Program,
     RestrictionText,
     RstrctnPrscrbngTxtRltd,
     Schedule,
 )
+from pbs_client.sync import upsert_records
 from pbs_client.toolkit.analytics import get_item_criteria_breakdown, indication_candidates
 from pbs_client.toolkit.core import (
     BenefitTypeCode,
@@ -426,109 +426,49 @@ def test_item_manufacturer_uses_item_manufacturer_link_not_wholesaler_link(sessi
     assert manufacturer.name == "Item manufacturer"
 
 
-def test_item_criteria_breakdown_preserves_parameter_program_and_rule_context(session_factory):
+def test_item_criteria_breakdown_uses_captured_restriction_path(
+    session_factory, fixture_dir
+):
+    captured = json.loads((fixture_dir / "criteria-restriction-path.json").read_text())
     with session_factory() as session:
-        session.add(Schedule(schedule_code=51, effective_date="2026-09-01", effective_year=2026))
-        session.commit()
-        session.add_all(
-            [
-                Program(schedule_code=51, program_code="CT", program_title="Chemotherapy"),
-                DispensingRule(
-                    schedule_code=51,
-                    dispensing_rule_mnem="HOSP",
-                    dispensing_rule_title="Public hospital",
-                    community_pharmacy_indicator="N",
-                ),
-                PrescribingTxt(
-                    schedule_code=51,
-                    prescribing_txt_id=100,
-                    prescribing_type="CRITERIA",
-                    prescribing_txt="Patient has the required clinical condition.",
-                ),
-                PrescribingTxt(
-                    schedule_code=51,
-                    prescribing_txt_id=200,
-                    prescribing_type="PARAMETER",
-                    prescribing_txt="Document the patient's clinical status.",
-                ),
-                PrescribingTxt(
-                    schedule_code=51,
-                    prescribing_txt_id=300,
-                    prescribing_type="INDICATION",
-                    prescribing_txt="Indication text is kept separate.",
-                ),
-            ]
-        )
-        session.commit()
-        session.add_all(
-            [
-                Criteria(
-                    schedule_code=51,
-                    criteria_prescribing_txt_id=100,
-                    criteria_type="CLINICAL_PATIENT",
-                    parameter_relationship="AND",
-                ),
-                Parameter(
-                    schedule_code=51,
-                    assessment_type="CLINICAL",
-                    parameter_prescribing_txt_id=200,
-                    parameter_type="CLINICAL_PATIENT",
-                ),
-            ]
-        )
-        session.commit()
-        session.add(
-            Item(
-                schedule_code=51,
-                li_item_id="li-criteria",
-                pbs_code="C1",
-                program_code="CT",
-            )
-        )
-        session.commit()
-        session.add_all(
-            [
-                ItemPrescribingTxtRltd(
-                    schedule_code=51,
-                    pbs_code="C1",
-                    prescribing_txt_id=100,
-                    pt_position=1,
-                ),
-                ItemPrescribingTxtRltd(
-                    schedule_code=51,
-                    pbs_code="C1",
-                    prescribing_txt_id=300,
-                    pt_position=2,
-                ),
-                CriteriaParameterRltd(
-                    schedule_code=51,
-                    criteria_prescribing_txt_id=100,
-                    parameter_prescribing_txt_id=200,
-                    pt_position=1,
-                ),
-                ItemDispensingRuleRltd(
-                    schedule_code=51,
-                    li_item_id="li-criteria",
-                    dispensing_rule_mnem="HOSP",
-                ),
-            ]
-        )
+        for resource in (
+            "Schedule",
+            "Program",
+            "DispensingRule",
+            "RestrictionText",
+            "PrescribingTxt",
+            "Item",
+            "Criteria",
+            "Parameter",
+            "ItemRestrictionRltd",
+            "RstrctnPrscrbngTxtRltd",
+            "CriteriaParameterRltd",
+            "ItemDispensingRuleRltd",
+        ):
+            payload = captured[resource]
+            records = payload if isinstance(payload, list) else [payload]
+            upsert_records(session, MODEL_BY_NAME[resource], records)
+            session.flush()
         session.commit()
 
-        item = session.get(Item, (51, "li-criteria"))
+        item = session.get(Item, (4708, "10003L_13467_29812_29815_29817"))
         result = get_item_criteria_breakdown(session, item)
         links = get_item_dispensing_rule_links(session, item)
 
     assert len(result.criteria) == 1
     criterion = result.criteria[0]
-    assert criterion.prescribing_text.prescribing_txt.startswith("Patient has")
-    assert criterion.criteria.criteria_type == "CLINICAL_PATIENT"
+    assert criterion.prescribing_text.prescribing_txt.startswith("Clinical criteria:")
+    assert criterion.item_relationship.res_code == "17806_17949_R"
+    assert isinstance(criterion.item_relationship, ItemRestrictionRltd)
+    assert criterion.criteria.criteria_type == "CLINICAL"
     assert len(criterion.parameters) == 1
-    assert criterion.parameters[0].prescribing_text.prescribing_txt.startswith("Document")
+    assert criterion.parameters[0].prescribing_text.prescribing_txt.startswith(
+        "Patient must have previously"
+    )
     assert criterion.parameters[0].parameters[0].parameter_type == "CLINICAL_PATIENT"
-    assert result.program.program_title == "Chemotherapy"
-    assert [rule.dispensing_rule_mnem for rule in result.dispensing_rules] == ["HOSP"]
-    assert [link.dispensing_rule_mnem for link in links] == ["HOSP"]
+    assert result.program.program_title == "General Schedule"
+    assert [rule.dispensing_rule_mnem for rule in result.dispensing_rules] == ["s90-cp"]
+    assert [link.dispensing_rule_mnem for link in links] == ["s90-cp"]
 
 
 def test_item_pricing_breakdown_returns_source_inputs_without_calculating_patient_amount(

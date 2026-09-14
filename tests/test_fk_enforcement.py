@@ -25,12 +25,16 @@ def orphan_item_atc(code: str) -> dict[str, object]:
 def test_sqlite_refresh_disables_fk_for_all_pool_connections_and_restores(tmp_path):
     engine = create_engine(
         f"sqlite:///{tmp_path / 'pbs.sqlite'}",
+        connect_args={"autocommit": False},
         future=True,
         pool_size=2,
         max_overflow=0,
     )
     init_db(engine)
     sessions = sessionmaker(bind=engine, expire_on_commit=False, future=True)
+
+    with sessions() as session:
+        assert session.execute(text("PRAGMA foreign_keys")).scalar_one() == 1
 
     with fk_checks_disabled_for_refresh(engine):
         first, second = sessions(), sessions()

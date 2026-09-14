@@ -247,7 +247,9 @@ def get_item_indication_text(session: Session, item: Item) -> list[IndicationTex
 
     Notes and cautions are excluded using the PBS relationship's
     ``restriction_indicator`` field. A restriction produces a fallback only
-    when it has no usable linked ``INDICATION`` condition.
+    when it has no usable linked ``INDICATION`` condition. ``source`` records
+    provenance, not a confidence level; the fallback is not currently a
+    calibrated confidence signal.
     """
 
     if item.pbs_code is None:

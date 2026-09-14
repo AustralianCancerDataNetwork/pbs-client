@@ -55,6 +55,17 @@ def upsert_records(session: Session, model: type[Base], records: Iterable[dict[s
     return written
 
 
+def _underreported_total(state: SyncState) -> int | None:
+    total_records = state.metadata_json.get("total_records")
+    if (
+        isinstance(total_records, int)
+        and not isinstance(total_records, bool)
+        and state.records_written < total_records
+    ):
+        return total_records
+    return None
+
+
 class SyncOrchestrator:
     """Coordinate API pages and local transactions in the required order."""
 
@@ -143,6 +154,11 @@ class SyncOrchestrator:
                     session.commit()
                     state = current
                 logger.info("Synced %s page %s (%s records)", name, page.page, count)
+            if (total_records := _underreported_total(state)) is not None:
+                raise PBSSyncError(
+                    f"{name} wrote {state.records_written:,} of the API-reported "
+                    f"{total_records:,} records"
+                )
             state.complete()
             self._save_state(state)
         except Exception as exc:
@@ -226,3 +242,17 @@ def mirror_status(session: Session) -> list[dict[str, Any]]:
             }
         )
     return rows
+
+
+def sync_integrity_issues(session: Session) -> list[SyncState]:
+    """Find checkpoints that wrote fewer API records than the final page reports.
+
+    Compare the API page count with ``records_written``, not table row counts:
+    upserts can legitimately collapse repeated records across schedules.
+    """
+
+    issues = []
+    for state in session.scalars(select(SyncState).order_by(SyncState.resource)):
+        if _underreported_total(state) is not None:
+            issues.append(state)
+    return issues
