@@ -357,25 +357,29 @@ def get_item_atc_codes(session: Session, item: Item) -> list[ATC]:
 def get_item_dispensing_rule_links(session: Session, item: Item) -> list[ItemDispensingRuleRltd]:
     """Return the dispensing-rule relationship rows attached to an item."""
 
-    return session.scalars(
-        select(ItemDispensingRuleRltd)
-        .where(
-            ItemDispensingRuleRltd.schedule_code == item.schedule_code,
-            ItemDispensingRuleRltd.li_item_id == item.li_item_id,
-        )
-        .order_by(ItemDispensingRuleRltd.dispensing_rule_mnem)
-    ).all()
+    return list(
+        session.scalars(
+            select(ItemDispensingRuleRltd)
+            .where(
+                ItemDispensingRuleRltd.schedule_code == item.schedule_code,
+                ItemDispensingRuleRltd.li_item_id == item.li_item_id,
+            )
+            .order_by(ItemDispensingRuleRltd.dispensing_rule_mnem)
+        ).all()
+    )
 
 
 def get_item_amt_hierarchy(session: Session, item: Item) -> list[ItemAmt]:
     """Return every linked AMT row, keeping its PBS row identity intact."""
 
-    rows = session.scalars(
-        select(ItemAmt).where(
-            ItemAmt.schedule_code == item.schedule_code,
-            ItemAmt.li_item_id == item.li_item_id,
-        )
-    ).all()
+    rows = list(
+        session.scalars(
+            select(ItemAmt).where(
+                ItemAmt.schedule_code == item.schedule_code,
+                ItemAmt.li_item_id == item.li_item_id,
+            )
+        ).all()
+    )
     rows.sort(
         key=lambda row: (
             _AMT_CONCEPT_TYPE_ORDER.get(row.concept_type_code, len(_AMT_CONCEPT_TYPE_ORDER)),
