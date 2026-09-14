@@ -18,7 +18,9 @@ from pbs_client.db.model import (
     Item,
     ItemAmt,
     ItemAtcRltd,
+    ItemDispensingRuleRltd,
     ItemRestrictionRltd,
+    Organisation,
     PrescribingTxt,
     RestrictionText,
     RstrctnPrscrbngTxtRltd,
@@ -180,6 +182,19 @@ def get_item(session: Session, item_code: str, **kwargs: Any) -> Item | None:
     return next(iter(find_items(session, item_code, **kwargs)), None)
 
 
+def get_item_manufacturer(session: Session, item: Item) -> Organisation | None:
+    """Return the manufacturer PBS links directly to this item, if present.
+
+    The Item resource's ``organisation_id`` identifies its manufacturer.
+    ``ItemOrganisationRltd`` describes a wholesaling relationship instead
+    and is deliberately not used here.
+    """
+
+    if item.organisation_id is None:
+        return None
+    return session.get(Organisation, (item.schedule_code, item.organisation_id))
+
+
 def get_item_restrictions(session: Session, item: Item) -> list[RestrictionExpansion]:
     """Expand an item through restrictions, prescribing text, and indications."""
 
@@ -339,6 +354,19 @@ def get_item_atc_codes(session: Session, item: Item) -> list[ATC]:
     ]
 
 
+def get_item_dispensing_rule_links(session: Session, item: Item) -> list[ItemDispensingRuleRltd]:
+    """Return the dispensing-rule relationship rows attached to an item."""
+
+    return session.scalars(
+        select(ItemDispensingRuleRltd)
+        .where(
+            ItemDispensingRuleRltd.schedule_code == item.schedule_code,
+            ItemDispensingRuleRltd.li_item_id == item.li_item_id,
+        )
+        .order_by(ItemDispensingRuleRltd.dispensing_rule_mnem)
+    ).all()
+
+
 def get_item_amt_hierarchy(session: Session, item: Item) -> list[ItemAmt]:
     """Return every linked AMT row, keeping its PBS row identity intact."""
 
@@ -463,7 +491,9 @@ __all__ = [
     "get_item",
     "get_item_amt_hierarchy",
     "get_item_atc_codes",
+    "get_item_dispensing_rule_links",
     "get_item_indication_text",
+    "get_item_manufacturer",
     "get_item_restrictions",
     "item_atc_codes",
     "item_restrictions",

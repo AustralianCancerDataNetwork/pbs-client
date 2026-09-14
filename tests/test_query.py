@@ -2,27 +2,43 @@ from __future__ import annotations
 
 from pbs_client.db.model import (
     ATC,
+    Copayment,
+    Criteria,
+    CriteriaParameterRltd,
+    DispensingRule,
+    Fee,
     Indication,
     Item,
     ItemAmt,
     ItemAtcRltd,
+    ItemDispensingRuleRltd,
+    ItemOrganisationRltd,
+    ItemPrescribingTxtRltd,
+    ItemPricingEvent,
     ItemRestrictionRltd,
+    MarkupBand,
+    Organisation,
+    Parameter,
     PrescribingTxt,
+    Program,
     RestrictionText,
     RstrctnPrscrbngTxtRltd,
     Schedule,
 )
-from pbs_client.toolkit.analytics import indication_candidates
+from pbs_client.toolkit.analytics import get_item_criteria_breakdown, indication_candidates
 from pbs_client.toolkit.core import (
     BenefitTypeCode,
     MpComponentSplit,
     expand_item,
     find_items,
     get_item_amt_hierarchy,
+    get_item_dispensing_rule_links,
     get_item_indication_text,
+    get_item_manufacturer,
     resolve_schedule,
     split_mp_components,
 )
+from pbs_client.toolkit.pricing import get_item_pricing_breakdown
 
 
 def test_offline_item_restriction_and_atc_expansion(session_factory):
@@ -378,3 +394,208 @@ def test_unknown_benefit_type_is_preserved(session_factory):
         indications = get_item_indication_text(session, session.get(Item, (12, "li-5")))
 
     assert indications[0].benefit_type_code == "Z"
+
+
+def test_item_manufacturer_uses_item_manufacturer_link_not_wholesaler_link(session_factory):
+    with session_factory() as session:
+        session.add(Schedule(schedule_code=50, effective_date="2026-09-01", effective_year=2026))
+        session.commit()
+        session.add_all(
+            [
+                Organisation(schedule_code=50, organisation_id=1, name="Item manufacturer"),
+                Organisation(schedule_code=50, organisation_id=2, name="Wholesaler"),
+            ]
+        )
+        session.commit()
+        item = Item(
+            schedule_code=50,
+            li_item_id="li-manufacturer",
+            pbs_code="M1",
+            organisation_id=1,
+        )
+        session.add(item)
+        session.commit()
+        session.add(
+            ItemOrganisationRltd(schedule_code=50, pbs_code="M1", organisation_id=2)
+        )
+        session.commit()
+
+        manufacturer = get_item_manufacturer(session, item)
+
+    assert manufacturer is not None
+    assert manufacturer.name == "Item manufacturer"
+
+
+def test_item_criteria_breakdown_preserves_parameter_program_and_rule_context(session_factory):
+    with session_factory() as session:
+        session.add(Schedule(schedule_code=51, effective_date="2026-09-01", effective_year=2026))
+        session.commit()
+        session.add_all(
+            [
+                Program(schedule_code=51, program_code="CT", program_title="Chemotherapy"),
+                DispensingRule(
+                    schedule_code=51,
+                    dispensing_rule_mnem="HOSP",
+                    dispensing_rule_title="Public hospital",
+                    community_pharmacy_indicator="N",
+                ),
+                PrescribingTxt(
+                    schedule_code=51,
+                    prescribing_txt_id=100,
+                    prescribing_type="CRITERIA",
+                    prescribing_txt="Patient has the required clinical condition.",
+                ),
+                PrescribingTxt(
+                    schedule_code=51,
+                    prescribing_txt_id=200,
+                    prescribing_type="PARAMETER",
+                    prescribing_txt="Document the patient's clinical status.",
+                ),
+                PrescribingTxt(
+                    schedule_code=51,
+                    prescribing_txt_id=300,
+                    prescribing_type="INDICATION",
+                    prescribing_txt="Indication text is kept separate.",
+                ),
+            ]
+        )
+        session.commit()
+        session.add_all(
+            [
+                Criteria(
+                    schedule_code=51,
+                    criteria_prescribing_txt_id=100,
+                    criteria_type="CLINICAL_PATIENT",
+                    parameter_relationship="AND",
+                ),
+                Parameter(
+                    schedule_code=51,
+                    assessment_type="CLINICAL",
+                    parameter_prescribing_txt_id=200,
+                    parameter_type="CLINICAL_PATIENT",
+                ),
+            ]
+        )
+        session.commit()
+        session.add(
+            Item(
+                schedule_code=51,
+                li_item_id="li-criteria",
+                pbs_code="C1",
+                program_code="CT",
+            )
+        )
+        session.commit()
+        session.add_all(
+            [
+                ItemPrescribingTxtRltd(
+                    schedule_code=51,
+                    pbs_code="C1",
+                    prescribing_txt_id=100,
+                    pt_position=1,
+                ),
+                ItemPrescribingTxtRltd(
+                    schedule_code=51,
+                    pbs_code="C1",
+                    prescribing_txt_id=300,
+                    pt_position=2,
+                ),
+                CriteriaParameterRltd(
+                    schedule_code=51,
+                    criteria_prescribing_txt_id=100,
+                    parameter_prescribing_txt_id=200,
+                    pt_position=1,
+                ),
+                ItemDispensingRuleRltd(
+                    schedule_code=51,
+                    li_item_id="li-criteria",
+                    dispensing_rule_mnem="HOSP",
+                ),
+            ]
+        )
+        session.commit()
+
+        item = session.get(Item, (51, "li-criteria"))
+        result = get_item_criteria_breakdown(session, item)
+        links = get_item_dispensing_rule_links(session, item)
+
+    assert len(result.criteria) == 1
+    criterion = result.criteria[0]
+    assert criterion.prescribing_text.prescribing_txt.startswith("Patient has")
+    assert criterion.criteria.criteria_type == "CLINICAL_PATIENT"
+    assert len(criterion.parameters) == 1
+    assert criterion.parameters[0].prescribing_text.prescribing_txt.startswith("Document")
+    assert criterion.parameters[0].parameters[0].parameter_type == "CLINICAL_PATIENT"
+    assert result.program.program_title == "Chemotherapy"
+    assert [rule.dispensing_rule_mnem for rule in result.dispensing_rules] == ["HOSP"]
+    assert [link.dispensing_rule_mnem for link in links] == ["HOSP"]
+
+
+def test_item_pricing_breakdown_returns_source_inputs_without_calculating_patient_amount(
+    session_factory,
+):
+    with session_factory() as session:
+        session.add(Schedule(schedule_code=52, effective_date="2026-09-01", effective_year=2026))
+        session.commit()
+        session.add_all(
+            [
+                Program(schedule_code=52, program_code="CT", program_title="Chemotherapy"),
+                DispensingRule(
+                    schedule_code=52,
+                    dispensing_rule_mnem="HOSP",
+                    dispensing_rule_title="Public hospital",
+                ),
+            ]
+        )
+        session.commit()
+        session.add_all(
+            [
+                Copayment(schedule_code=52, general=31.60, concessional=7.70),
+                Fee(schedule_code=52, program_code="CT", dispensing_fee_ready_prepared=1.00),
+                MarkupBand(
+                    schedule_code=52,
+                    program_code="CT",
+                    dispensing_rule_mnem="HOSP",
+                    markup_band_code="A",
+                    limit=100.0,
+                    variable=0.1,
+                    offset=0.0,
+                    fixed=1.0,
+                ),
+            ]
+        )
+        session.commit()
+        session.add(
+            Item(
+                schedule_code=52,
+                li_item_id="li-price",
+                pbs_code="P1",
+                program_code="CT",
+            )
+        )
+        session.commit()
+        session.add_all(
+            [
+                ItemDispensingRuleRltd(
+                    schedule_code=52,
+                    li_item_id="li-price",
+                    dispensing_rule_mnem="HOSP",
+                    special_patient_contribution=2.0,
+                ),
+                ItemPricingEvent(
+                    schedule_code=52,
+                    li_item_id="li-price",
+                    percentage_applied=5.0,
+                    event_type_code="APRIL_ADJUSTMENT",
+                ),
+            ]
+        )
+        session.commit()
+
+        result = get_item_pricing_breakdown(session, session.get(Item, (52, "li-price")))
+
+    assert result.copayment.general == 31.60
+    assert result.fee.dispensing_fee_ready_prepared == 1.00
+    assert result.dispensing_rule_links[0].special_patient_contribution == 2.0
+    assert result.markup_bands[0].markup_band_code == "A"
+    assert result.pricing_events[0].event_type_code == "APRIL_ADJUSTMENT"
