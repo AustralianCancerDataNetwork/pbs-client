@@ -3,10 +3,19 @@
 from __future__ import annotations
 
 import logging
+import sys
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Any
 
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    TextColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+)
 from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
 
@@ -53,6 +62,17 @@ def upsert_records(session: Session, model: type[Base], records: Iterable[dict[s
                 setattr(current, field, value)
         written += 1
     return written
+
+
+def _underreported_total(state: SyncState) -> int | None:
+    total_records = state.metadata_json.get("total_records")
+    if (
+        isinstance(total_records, int)
+        and not isinstance(total_records, bool)
+        and state.records_written < total_records
+    ):
+        return total_records
+    return None
 
 
 class SyncOrchestrator:
@@ -125,24 +145,53 @@ class SyncOrchestrator:
         self._save_state(state)
         pages = 0
         try:
-            for page in self.client.iter_pages(spec.endpoint, limit=limit, start_page=start_page):
-                pages += 1
-                with self.session_factory() as session:
-                    current = session.get(SyncState, name)
-                    if current is None:
-                        raise PBSSyncError(f"sync state disappeared for {name}")
-                    count = upsert_records(session, model, page.records)
-                    metadata = {
-                        "total_records": page.total_records,
-                        "messages": page.messages,
-                        "links": page.links,
-                        "synced_at": page.metadata.get("synced_at"),
-                        "page_limit": limit,
-                    }
-                    current.checkpoint(page.page, count, metadata)
-                    session.commit()
-                    state = current
-                logger.info("Synced %s page %s (%s records)", name, page.page, count)
+            initial_total = state.metadata_json.get("total_records") if can_resume else None
+            if isinstance(initial_total, bool) or not isinstance(initial_total, int):
+                initial_total = None
+            with Progress(
+                TextColumn("{task.description}"),
+                BarColumn(),
+                MofNCompleteColumn(),
+                TextColumn("records"),
+                TimeElapsedColumn(),
+                TimeRemainingColumn(),
+                disable=not sys.stderr.isatty(),
+                transient=True,
+            ) as progress:
+                task_id = progress.add_task(
+                    name,
+                    total=initial_total,
+                    completed=state.records_written,
+                )
+                for page in self.client.iter_pages(
+                    spec.endpoint,
+                    limit=limit,
+                    start_page=start_page,
+                ):
+                    pages += 1
+                    with self.session_factory() as session:
+                        current = session.get(SyncState, name)
+                        if current is None:
+                            raise PBSSyncError(f"sync state disappeared for {name}")
+                        count = upsert_records(session, model, page.records)
+                        metadata = {
+                            "total_records": page.total_records,
+                            "messages": page.messages,
+                            "links": page.links,
+                            "synced_at": page.metadata.get("synced_at"),
+                            "page_limit": limit,
+                        }
+                        current.checkpoint(page.page, count, metadata)
+                        session.commit()
+                        state = current
+                    progress.update(task_id, total=page.total_records)
+                    progress.advance(task_id, len(page.records))
+                    logger.info("Synced %s page %s (%s records)", name, page.page, count)
+            if (total_records := _underreported_total(state)) is not None:
+                raise PBSSyncError(
+                    f"{name} wrote {state.records_written:,} of the API-reported "
+                    f"{total_records:,} records"
+                )
             state.complete()
             self._save_state(state)
         except Exception as exc:
@@ -226,3 +275,17 @@ def mirror_status(session: Session) -> list[dict[str, Any]]:
             }
         )
     return rows
+
+
+def sync_integrity_issues(session: Session) -> list[SyncState]:
+    """Find checkpoints that wrote fewer API records than the final page reports.
+
+    Compare the API page count with ``records_written``, not table row counts:
+    upserts can legitimately collapse repeated records across schedules.
+    """
+
+    issues = []
+    for state in session.scalars(select(SyncState).order_by(SyncState.resource)):
+        if _underreported_total(state) is not None:
+            issues.append(state)
+    return issues

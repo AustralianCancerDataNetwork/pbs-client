@@ -13,10 +13,11 @@ from pbs_client.db.model import (
     CriteriaParameterRltd,
     DispensingRule,
     Item,
-    ItemPrescribingTxtRltd,
+    ItemRestrictionRltd,
     Parameter,
     PrescribingTxt,
     Program,
+    RstrctnPrscrbngTxtRltd,
     Schedule,
 )
 from pbs_client.toolkit.core import (
@@ -49,7 +50,7 @@ class ParameterText:
 class CriteriaText:
     """One item-linked eligibility criterion with its linked parameter detail."""
 
-    item_relationship: ItemPrescribingTxtRltd
+    item_relationship: ItemRestrictionRltd
     criteria: Criteria
     prescribing_text: PrescribingTxt
     parameters: tuple[ParameterText, ...]
@@ -75,29 +76,44 @@ def get_item_criteria_breakdown(session: Session, item: Item) -> ItemCriteriaBre
     criteria_rows = []
     if item.pbs_code is not None:
         criteria_rows = session.execute(
-            select(ItemPrescribingTxtRltd, Criteria, PrescribingTxt)
+            select(ItemRestrictionRltd, Criteria, PrescribingTxt)
+            .select_from(ItemRestrictionRltd)
+            .join(
+                RstrctnPrscrbngTxtRltd,
+                and_(
+                    RstrctnPrscrbngTxtRltd.schedule_code
+                    == ItemRestrictionRltd.schedule_code,
+                    RstrctnPrscrbngTxtRltd.res_code == ItemRestrictionRltd.res_code,
+                ),
+            )
             .join(
                 PrescribingTxt,
                 and_(
-                    PrescribingTxt.schedule_code == ItemPrescribingTxtRltd.schedule_code,
-                    PrescribingTxt.prescribing_txt_id == ItemPrescribingTxtRltd.prescribing_txt_id,
+                    PrescribingTxt.schedule_code
+                    == RstrctnPrscrbngTxtRltd.schedule_code,
+                    PrescribingTxt.prescribing_txt_id
+                    == RstrctnPrscrbngTxtRltd.prescribing_text_id,
                 ),
             )
             .join(
                 Criteria,
                 and_(
                     Criteria.schedule_code == PrescribingTxt.schedule_code,
-                    Criteria.criteria_prescribing_txt_id == PrescribingTxt.prescribing_txt_id,
+                    Criteria.criteria_prescribing_txt_id
+                    == PrescribingTxt.prescribing_txt_id,
                 ),
             )
             .where(
-                ItemPrescribingTxtRltd.schedule_code == item.schedule_code,
-                ItemPrescribingTxtRltd.pbs_code == item.pbs_code,
+                ItemRestrictionRltd.schedule_code == item.schedule_code,
+                ItemRestrictionRltd.pbs_code == item.pbs_code,
+                ItemRestrictionRltd.restriction_indicator == "Y",
                 PrescribingTxt.prescribing_type == "CRITERIA",
             )
             .order_by(
-                ItemPrescribingTxtRltd.pt_position,
-                ItemPrescribingTxtRltd.prescribing_txt_id,
+                ItemRestrictionRltd.res_position,
+                ItemRestrictionRltd.res_code,
+                RstrctnPrscrbngTxtRltd.pt_position,
+                RstrctnPrscrbngTxtRltd.prescribing_text_id,
             )
         ).all()
 

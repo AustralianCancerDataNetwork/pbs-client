@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from importlib import import_module
+
+import pytest
+from typer.testing import CliRunner
 
 from pbs_client.cli.main import _report_sync_failure, _status_lines
 from pbs_client.db import MODEL_BY_NAME, SyncState
@@ -56,6 +60,130 @@ def test_sync_is_idempotent_and_upserts(session_factory):
         assert session.query(MODEL_BY_NAME["Schedule"]).count() == 1
         assert session.get(SyncState, "Schedule").status == "complete"
     assert first[0].status == second[0].status == "complete"
+
+
+def test_sync_fails_instead_of_completing_below_api_total(session_factory):
+    page = Page(
+        "/schedules",
+        1,
+        1,
+        [schedule(1, "2026-01-01")],
+        {"total_records": 2},
+        [],
+    )
+
+    with pytest.raises(PBSSyncError, match="wrote 1 of the API-reported 2 records"):
+        SyncOrchestrator(FakeClient([page]), session_factory).run(
+            resource="Schedule", limit=1
+        )
+
+    with session_factory() as session:
+        state = session.get(SyncState, "Schedule")
+        assert state.status == "failed"
+        assert state.records_written == 1
+        assert state.metadata_json["total_records"] == 2
+        assert state.completed_at is None
+
+
+def test_sync_progress_tracks_page_totals(session_factory, monkeypatch):
+    observed = []
+
+    class RecordingProgress:
+        def __init__(self, *_columns, **_options):
+            self.total = None
+            self.completed = 0
+            observed.append(self)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+        def add_task(self, _description, *, total=None, completed=0):
+            self.total = total
+            self.completed = completed
+            return 1
+
+        def update(self, _task_id, *, total=None):
+            if total is not None:
+                self.total = total
+
+        def advance(self, _task_id, amount):
+            self.completed += amount
+
+    sync_module = import_module("pbs_client.sync.orchestrator")
+    monkeypatch.setattr(sync_module, "Progress", RecordingProgress)
+    pages = [
+        Page(
+            "/schedules",
+            1,
+            2,
+            [schedule(1, "2026-01-01"), schedule(2, "2026-01-01")],
+            {"total_records": 3},
+            [],
+        ),
+        Page(
+            "/schedules",
+            2,
+            2,
+            [schedule(3, "2026-01-01")],
+            {"total_records": 3},
+            [],
+        ),
+    ]
+
+    SyncOrchestrator(FakeClient(pages), session_factory).run(
+        resource="Schedule", limit=2
+    )
+
+    assert len(observed) == 1
+    assert observed[0].total == 3
+    assert observed[0].completed == 3
+
+
+@pytest.mark.parametrize(
+    ("resource", "records_written", "total_records", "exit_code"),
+    [
+        ("MarkupBand", 1748, 1748, 0),
+        ("ItemDispensingRuleRltd", 56181, 501181, 1),
+    ],
+)
+def test_verify_command_checks_written_count_not_table_rows(
+    session_factory, monkeypatch, resource, records_written, total_records, exit_code
+):
+    endpoint = "/markup-bands" if resource == "MarkupBand" else "/item-dispensing-rule-relationships"
+    with session_factory() as session:
+        session.add(
+            SyncState(
+                resource=resource,
+                endpoint=endpoint,
+                status="complete",
+                records_written=records_written,
+                metadata_json={"total_records": total_records},
+            )
+        )
+        session.commit()
+
+    probe = session_factory()
+    engine = probe.get_bind()
+    probe.close()
+    cli_main = import_module("pbs_client.cli.main")
+    monkeypatch.setattr(cli_main, "_runtime", lambda: (None, engine, "test_db"))
+    monkeypatch.setattr(
+        cli_main,
+        "init_db",
+        lambda _: pytest.fail("verify must not mutate or initialize the mirror"),
+    )
+
+    result = CliRunner().invoke(cli_main.app, ["verify"])
+
+    assert result.exit_code == exit_code
+    if exit_code:
+        assert "ItemDispensingRuleRltd" in result.output
+        assert "56,181/501,181" in result.output
+    else:
+        assert "verification passed" in result.output
 
 
 def test_sync_resumes_after_a_committed_page(session_factory):

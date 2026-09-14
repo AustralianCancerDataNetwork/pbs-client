@@ -1,0 +1,86 @@
+{
+  "_capture_note": "Selected columns copied from raw_payload records in the read-only mirror for schedule 4708, item 10003L. No ItemPrescribingTxtRltd criterion row exists in this capture.",
+  "Schedule": {
+    "schedule_code": 4708,
+    "revision_number": 2,
+    "start_tsp": "2026-08-01T00:00:00.000+10:00",
+    "effective_date": "2026-08-01",
+    "effective_month": "AUGUST",
+    "effective_year": 2026,
+    "publication_status": "PUBLISHED"
+  },
+  "Program": {
+    "schedule_code": 4708,
+    "program_code": "GE",
+    "program_title": "General Schedule"
+  },
+  "DispensingRule": {
+    "schedule_code": 4708,
+    "dispensing_rule_mnem": "s90-cp",
+    "dispensing_rule_reference": "rp-s90-cp",
+    "dispensing_rule_title": "Community Pharmacy",
+    "community_pharmacy_indicator": "true"
+  },
+  "Item": {
+    "schedule_code": 4708,
+    "li_item_id": "10003L_13467_29812_29815_29817",
+    "pbs_code": "10003L",
+    "drug_name": "Dabrafenib",
+    "program_code": "GE"
+  },
+  "RestrictionText": {
+    "schedule_code": 4708,
+    "res_code": "17806_17949_R"
+  },
+  "ItemRestrictionRltd": {
+    "schedule_code": 4708,
+    "pbs_code": "10003L",
+    "res_code": "17806_17949_R",
+    "benefit_type_code": "S",
+    "restriction_indicator": "Y",
+    "res_position": 1
+  },
+  "RstrctnPrscrbngTxtRltd": {
+    "schedule_code": 4708,
+    "res_code": "17806_17949_R",
+    "prescribing_text_id": 7738,
+    "pt_position": 2
+  },
+  "PrescribingTxt": [
+    {
+      "schedule_code": 4708,
+      "prescribing_txt_id": 7738,
+      "prescribing_type": "CRITERIA",
+      "prescribing_txt": "Clinical criteria: Patient must have previously been issued with an authority prescription for this drug"
+    },
+    {
+      "schedule_code": 4708,
+      "prescribing_txt_id": 7737,
+      "prescribing_type": "PARAMETER",
+      "prescribing_txt": "Patient must have previously been issued with an authority prescription for this drug"
+    }
+  ],
+  "Criteria": {
+    "schedule_code": 4708,
+    "criteria_prescribing_txt_id": 7738,
+    "criteria_type": "CLINICAL",
+    "parameter_relationship": "ANY"
+  },
+  "CriteriaParameterRltd": {
+    "schedule_code": 4708,
+    "criteria_prescribing_txt_id": 7738,
+    "parameter_prescribing_txt_id": 7737,
+    "pt_position": 1
+  },
+  "Parameter": {
+    "schedule_code": 4708,
+    "parameter_prescribing_txt_id": 7737,
+    "assessment_type": "IMMEDIATE",
+    "parameter_type": "CLINICAL_PATIENT"
+  },
+  "ItemDispensingRuleRltd": {
+    "schedule_code": 4708,
+    "li_item_id": "10003L_13467_29812_29815_29817",
+    "dispensing_rule_mnem": "s90-cp"
+  }
+}

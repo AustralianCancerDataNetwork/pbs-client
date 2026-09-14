@@ -12,7 +12,7 @@ from pbs_client.config import PBSSettings, get_pbs_context
 from pbs_client.db import init_db, make_session_factory
 from pbs_client.errors import PBSHTTPError, PBSInvalidResponseError, PBSSyncError, PBSTransportError
 from pbs_client.http import DEFAULT_PAGE_SIZE, PBSClient
-from pbs_client.sync import SyncOrchestrator, mirror_status
+from pbs_client.sync import SyncOrchestrator, mirror_status, sync_integrity_issues
 
 app = typer.Typer(help="Maintain a local offline mirror of the PBS Public Data API v3.")
 
@@ -201,6 +201,32 @@ def status() -> None:
     with make_session_factory(engine)() as session:
         for line in _status_lines(mirror_status(session)):
             typer.echo(line)
+
+
+@app.command()
+def verify() -> None:
+    """Check that recorded sync writes are not below API-reported totals."""
+
+    _, engine, _ = _runtime()
+    with make_session_factory(engine)() as session:
+        issues = sync_integrity_issues(session)
+    if not issues:
+        typer.echo("PBS mirror verification passed: no recorded resource is below its API total.")
+        return
+
+    typer.echo(
+        f"PBS mirror verification failed for {len(issues)} resource(s):",
+        err=True,
+    )
+    for state in issues:
+        total_records = state.metadata_json["total_records"]
+        missing_records = total_records - state.records_written
+        typer.echo(
+            f"  {state.resource}: {state.records_written:,}/{total_records:,} "
+            f"records written (missing {missing_records:,}; status={state.status})",
+            err=True,
+        )
+    raise typer.Exit(code=1)
 
 
 def main() -> None:
