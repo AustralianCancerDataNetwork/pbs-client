@@ -1,1 +1,1 @@
-"""PBS-native navigation and indication-candidate helpers."""
+"""PBS-native navigation, eligibility, indication, and pricing helpers."""

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from enum import Enum
@@ -15,8 +16,11 @@ from pbs_client.db.model import (
     ATC,
     Indication,
     Item,
+    ItemAmt,
     ItemAtcRltd,
+    ItemDispensingRuleRltd,
     ItemRestrictionRltd,
+    Organisation,
     PrescribingTxt,
     RestrictionText,
     RstrctnPrscrbngTxtRltd,
@@ -48,6 +52,21 @@ class IndicationText:
 
 
 @dataclass(frozen=True, slots=True)
+class MpComponentSplit:
+    """Conservative component-text interpretation of one AMT MP row."""
+
+    schedule_code: int
+    li_item_id: str
+    pbs_concept_id: int
+    source_field: Literal["preferred_term", "pbs_preferred_term"] | None
+    source_term: str | None
+    component_terms: tuple[str, ...]
+    status: Literal["split", "single_term", "missing", "unsupported", "divergent"]
+    reason: str | None = None
+    field_divergence: tuple[str, str] | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class RestrictionExpansion:
     restriction: RestrictionText
     prescribing_texts: list[PrescribingTxt] = field(default_factory=list)
@@ -74,6 +93,10 @@ class _HTMLTextExtractor(HTMLParser):
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag in {"br", "div", "li", "p", "tr"}:
             self.parts.append(" ")
+
+
+_AMT_CONCEPT_TYPE_ORDER = {"MP": 0, "MPUU": 1, "MPP": 2, "TPP": 3, "TPUU": 4}
+_AMT_COMPONENT_CONNECTOR = re.compile(r"\b(?:and|with)\b", re.IGNORECASE)
 
 
 def _clean_html(value: str | None) -> str | None:
@@ -157,6 +180,19 @@ def get_item(session: Session, item_code: str, **kwargs: Any) -> Item | None:
     """Return the first matching item, or ``None``."""
 
     return next(iter(find_items(session, item_code, **kwargs)), None)
+
+
+def get_item_manufacturer(session: Session, item: Item) -> Organisation | None:
+    """Return the manufacturer PBS links directly to this item, if present.
+
+    The Item resource's ``organisation_id`` identifies its manufacturer.
+    ``ItemOrganisationRltd`` describes a wholesaling relationship instead
+    and is deliberately not used here.
+    """
+
+    if item.organisation_id is None:
+        return None
+    return session.get(Organisation, (item.schedule_code, item.organisation_id))
 
 
 def get_item_restrictions(session: Session, item: Item) -> list[RestrictionExpansion]:
@@ -318,6 +354,121 @@ def get_item_atc_codes(session: Session, item: Item) -> list[ATC]:
     ]
 
 
+def get_item_dispensing_rule_links(session: Session, item: Item) -> list[ItemDispensingRuleRltd]:
+    """Return the dispensing-rule relationship rows attached to an item."""
+
+    return list(
+        session.scalars(
+            select(ItemDispensingRuleRltd)
+            .where(
+                ItemDispensingRuleRltd.schedule_code == item.schedule_code,
+                ItemDispensingRuleRltd.li_item_id == item.li_item_id,
+            )
+            .order_by(ItemDispensingRuleRltd.dispensing_rule_mnem)
+        ).all()
+    )
+
+
+def get_item_amt_hierarchy(session: Session, item: Item) -> list[ItemAmt]:
+    """Return every linked AMT row, keeping its PBS row identity intact."""
+
+    rows = list(
+        session.scalars(
+            select(ItemAmt).where(
+                ItemAmt.schedule_code == item.schedule_code,
+                ItemAmt.li_item_id == item.li_item_id,
+            )
+        ).all()
+    )
+    rows.sort(
+        key=lambda row: (
+            _AMT_CONCEPT_TYPE_ORDER.get(row.concept_type_code, len(_AMT_CONCEPT_TYPE_ORDER)),
+            row.concept_type_code,
+            row.pbs_concept_id,
+        )
+    )
+    return rows
+
+
+def _parse_mp_component_text(
+    text: str,
+) -> tuple[Literal["split", "single_term", "unsupported"], tuple[str, ...], str | None]:
+    if "(&)" in text:
+        return "unsupported", (), 'unsupported "(&)" separator'
+    if _AMT_COMPONENT_CONNECTOR.search(text):
+        return "unsupported", (), '"with"/"and" text is not treated as a combination'
+    if "+" not in text:
+        return "single_term", (text,), None
+
+    parts = tuple(part.strip() for part in text.split(" + "))
+    if len(parts) < 2 or any(not part or "+" in part for part in parts):
+        return "unsupported", (), "unrecognized or empty combination component"
+    return "split", parts, None
+
+
+def _select_mp_source(
+    concept: ItemAmt,
+) -> tuple[
+    Literal["preferred_term", "pbs_preferred_term"] | None,
+    str | None,
+    str | None,
+    tuple[str, str] | None,
+]:
+    preferred = concept.preferred_term
+    fallback = concept.pbs_preferred_term
+    preferred_text = preferred.strip() if preferred and preferred.strip() else None
+    fallback_text = fallback.strip() if fallback and fallback.strip() else None
+
+    if preferred and fallback and preferred_text and fallback_text:
+        normalized_preferred = " ".join(preferred_text.split()).casefold()
+        normalized_fallback = " ".join(fallback_text.split()).casefold()
+        if normalized_preferred != normalized_fallback:
+            return None, None, None, (preferred, fallback)
+
+    if preferred_text:
+        return "preferred_term", preferred, preferred_text, None
+    if fallback_text:
+        return "pbs_preferred_term", fallback, fallback_text, None
+    return None, None, None, None
+
+
+def _split_mp_concept(concept: ItemAmt) -> MpComponentSplit:
+    source_field, source_term, text, field_divergence = _select_mp_source(concept)
+    component_terms: tuple[str, ...] = ()
+    reason: str | None = None
+    status: Literal["split", "single_term", "missing", "unsupported", "divergent"]
+
+    if field_divergence:
+        status = "divergent"
+        reason = "preferred_term and pbs_preferred_term differ"
+    elif text:
+        status, component_terms, reason = _parse_mp_component_text(text)
+    else:
+        status = "missing"
+
+    return MpComponentSplit(
+        schedule_code=concept.schedule_code,
+        li_item_id=concept.li_item_id,
+        pbs_concept_id=concept.pbs_concept_id,
+        source_field=source_field,
+        source_term=source_term,
+        component_terms=component_terms,
+        status=status,
+        reason=reason,
+        field_divergence=field_divergence,
+    )
+
+
+def split_mp_components(session: Session, item: Item) -> list[MpComponentSplit]:
+    """Return one conservative component-text result per linked MP row."""
+
+    return [
+        _split_mp_concept(concept)
+        for concept in get_item_amt_hierarchy(session, item)
+        if concept.concept_type_code == "MP"
+    ]
+
+
 def expand_item(session: Session, item: Item) -> ItemExpansion:
     """Return the complete convenience expansion for an item."""
 
@@ -337,15 +488,20 @@ __all__ = [
     "BenefitTypeCode",
     "IndicationText",
     "ItemExpansion",
+    "MpComponentSplit",
     "RestrictionExpansion",
     "expand_item",
     "find_items",
     "get_item",
+    "get_item_amt_hierarchy",
     "get_item_atc_codes",
+    "get_item_dispensing_rule_links",
     "get_item_indication_text",
+    "get_item_manufacturer",
     "get_item_restrictions",
     "item_atc_codes",
     "item_restrictions",
     "lookup_item",
     "resolve_schedule",
+    "split_mp_components",
 ]
