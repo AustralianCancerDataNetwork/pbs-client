@@ -12,9 +12,9 @@ from oa_configurator import (
     RefTo,
     ResolvedDatabase,
     Resolver,
-    Sensitive,
     load_stack_config,
 )
+from oa_configurator.refs import Sensitive
 from pydantic import Field
 
 DEFAULT_BASE_URL = "https://data-api.health.gov.au/pbs/api/v3"

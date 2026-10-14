@@ -213,6 +213,33 @@ def test_sync_resumes_after_a_committed_page(session_factory):
     assert result[0].records_written == 2
 
 
+def test_sync_resume_past_final_page_marks_complete_when_total_is_met(session_factory):
+    with session_factory() as session:
+        session.add(
+            SyncState(
+                resource="Schedule",
+                endpoint="/schedules",
+                page=2,
+                status="in_progress",
+                records_written=2,
+                metadata_json={"page_limit": 1, "total_records": 2},
+            )
+        )
+        session.commit()
+
+    client = FakeClient([])
+    result = SyncOrchestrator(client, session_factory).run(
+        resource="Schedule", limit=1
+    )
+
+    with session_factory() as session:
+        state = session.get(SyncState, "Schedule")
+        assert state.status == "complete"
+        assert state.records_written == 2
+    assert client.calls == [("/schedules", 3)]
+    assert result[0].status == "complete"
+
+
 def test_sync_restarts_when_page_size_changes(session_factory):
     pages = [
         Page("/schedules", 1, 1, [schedule(1, "2026-01-01")], {"total_records": 2}, [{"rel": "next"}]),

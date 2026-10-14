@@ -34,6 +34,8 @@ def test_pbs_config_resolves_shared_generic_database(tmp_path: Path):
     database = Resolver(stack).resolve_database(config.pbs_db)
 
     assert config.subscription_key == "configured-key"
+    assert "configured-key" not in repr(config)
+    assert "configured-key" not in str(config)
     assert config.rate_limit_seconds == MIN_RATE_LIMIT_SECONDS
     assert database.name == "pbs_db"
     assert database.connection.url == f"sqlite:///{tmp_path / 'pbs.db'}"
